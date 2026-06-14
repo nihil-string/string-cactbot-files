@@ -610,6 +610,10 @@ const myDmuResetP1 = (data) => {
 };
 
 const myDmuResetP2 = (data) => {
+  if (data.myDmuP2Round8Timer !== undefined) {
+    clearTimeout(data.myDmuP2Round8Timer);
+    data.myDmuP2Round8Timer = undefined;
+  }
   data.myDmuP2Initial = {};
   data.myDmuP2Current = {};
   data.myDmuP2GroupA = [];
@@ -620,6 +624,7 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2RoundSeen = {};
   data.myDmuP2Round = 0;
   data.myDmuP2AbilityRound = 0;
+  data.myDmuP2Round8Timer = undefined;
   data.myDmuP2BuffCounts = {};
   data.myDmuP2FuturePastCount = 0;
 };
@@ -685,6 +690,7 @@ const myDmuInitState = () => ({
   myDmuP2RoundSeen: {},
   myDmuP2Round: 0,
   myDmuP2AbilityRound: 0,
+  myDmuP2Round8Timer: undefined,
   myDmuP2BuffCounts: {},
   myDmuP2FuturePastCount: 0,
   myDmuP3Mahjong: {
@@ -906,6 +912,20 @@ const myDmuApplyP2Round = (data, round) => {
   data.myDmuP2AppliedRounds[round] = true;
   data.myDmuP2AppliedRoundSignatures[round] = signature;
   return true;
+};
+
+const myDmuScheduleP2Round8 = (data) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P2TowerMark'))
+    return;
+  if (data.myDmuP2Round8Timer !== undefined)
+    clearTimeout(data.myDmuP2Round8Timer);
+  data.myDmuP2Round8Timer = setTimeout(() => {
+    data.myDmuP2Round8Timer = undefined;
+    if (data.myDmuPhase !== 'p2' || (data.myDmuP2AbilityRound ?? 0) !== 7)
+      return;
+    data.myDmuP2Round = 8;
+    myDmuApplyP2Round(data, 8);
+  }, 600);
 };
 
 const myDmuP2Instruction = (data, round) => {
@@ -1914,6 +1934,8 @@ Options.Triggers.push({
       run: (data) => {
         const round = myDmuP2RecordAbilityRound(data);
         myDmuApplyP2Round(data, round);
+        if (round === 7)
+          myDmuScheduleP2Round8(data);
         if (round >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMark'))
           myDmuScheduleClearMarks(data, 'p2Tower', 1.2, (data) =>
             (data.myDmuP2AbilityRound ?? 0) >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMark'));
