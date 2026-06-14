@@ -43,6 +43,7 @@ const myDmuJobGroups = {
 };
 const myDmuP3TargetFirstSecondOrder = ['D1', 'D2', 'D3', 'D4', 'MT', 'ST', 'H2', 'H1'];
 const myDmuP3TargetThirdOrder = ['MT', 'ST', 'D1', 'D2', 'D3', 'D4', 'H2', 'H1'];
+const myDmuRoleOrderText = (order) => order.join('/');
 
 const myDmuP1Headmarkers = {
   stack: '0080',
@@ -304,6 +305,38 @@ const myDmuRolePriority = (role, order = myDmuRoleOrder) => {
 const myDmuRoleGroup = (role) => role?.startsWith('D') ? 'DPS' : 'TN';
 
 const myDmuNormalizeRp = (role) => myDmuRoleOrder.includes(role) ? role : undefined;
+
+const myDmuParseRoleOrder = (value, fallback) => {
+  const rawRoles = Array.isArray(value) ? value : typeof value === 'string'
+    ? value.toUpperCase().split(/[\s,，/|>＞、;；]+/u)
+    : [];
+  const seen = new Set();
+  const order = [];
+  for (const raw of rawRoles) {
+    const role = myDmuNormalizeRp(raw.trim());
+    if (role === undefined || seen.has(role))
+      continue;
+    seen.add(role);
+    order.push(role);
+  }
+  for (const role of fallback) {
+    if (!seen.has(role)) {
+      seen.add(role);
+      order.push(role);
+    }
+  }
+  for (const role of myDmuRoleOrder) {
+    if (!seen.has(role))
+      order.push(role);
+  }
+  return order;
+};
+
+const myDmuP3TargetFirstSecondPriority = (data) =>
+  myDmuParseRoleOrder(data.triggerSetConfig?.MyDMU_P3TargetFirstSecondPriority, myDmuP3TargetFirstSecondOrder);
+
+const myDmuP3TargetThirdPriority = (data) =>
+  myDmuParseRoleOrder(data.triggerSetConfig?.MyDMU_P3TargetThirdPriority, myDmuP3TargetThirdOrder);
 
 const myDmuPartyNames = (data) => data.party?.partyNames_ ?? data.party?.partyNames ?? [];
 
@@ -1120,12 +1153,14 @@ const myDmuTryApplyP3TargetMarkers = (data) => {
   if (state.first.length !== 3 || state.second.length !== 3 || state.third.length !== 2)
     return false;
 
+  const firstSecondOrder = myDmuP3TargetFirstSecondPriority(data);
+  const thirdOrder = myDmuP3TargetThirdPriority(data);
   const desired = [];
-  myDmuSortTargetEntries(state.first, myDmuP3TargetFirstSecondOrder)
+  myDmuSortTargetEntries(state.first, firstSecondOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['attack1', 'attack2', 'attack3'][index] }));
-  myDmuSortTargetEntries(state.second, myDmuP3TargetFirstSecondOrder)
+  myDmuSortTargetEntries(state.second, firstSecondOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['bind1', 'bind2', 'bind3'][index] }));
-  myDmuSortTargetEntries(state.third, myDmuP3TargetThirdOrder)
+  myDmuSortTargetEntries(state.third, thirdOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['stop1', 'stop2'][index] }));
 
   myDmuMarkQueue(data, desired, '绝妖星 P3 一二三目标');
@@ -1352,6 +1387,18 @@ Options.Triggers.push({
       name: { en: '自用：P3 一二三目标标点' },
       type: 'checkbox',
       default: false,
+    },
+    {
+      id: 'MyDMU_P3TargetFirstSecondPriority',
+      name: { en: '自用：P3 一/二目标优先级' },
+      type: 'string',
+      default: myDmuRoleOrderText(myDmuP3TargetFirstSecondOrder),
+    },
+    {
+      id: 'MyDMU_P3TargetThirdPriority',
+      name: { en: '自用：P3 三目标优先级' },
+      type: 'string',
+      default: myDmuRoleOrderText(myDmuP3TargetThirdOrder),
     },
     {
       id: 'MyDMU_P3DebuffCallout',
