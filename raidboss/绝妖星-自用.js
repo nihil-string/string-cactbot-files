@@ -10,6 +10,37 @@ const myDmuPhaseStarts = {
 };
 
 const myDmuRoleOrder = ['MT', 'ST', 'H1', 'H2', 'D1', 'D2', 'D3', 'D4'];
+const myDmuDefaultJobOrder = [
+  'WAR', 'DRK', 'GNB', 'PLD',
+  'AST', 'WHM', 'SGE', 'SCH',
+  'VPR', 'SAM', 'NIN', 'RPR', 'DRG', 'MNK',
+  'DNC', 'BRD', 'MCH',
+  'PCT', 'BLM', 'SMN', 'RDM', 'BLU',
+];
+const myDmuJobGroups = {
+  PLD: 'tank',
+  WAR: 'tank',
+  DRK: 'tank',
+  GNB: 'tank',
+  WHM: 'healer',
+  SCH: 'healer',
+  AST: 'healer',
+  SGE: 'healer',
+  MNK: 'dps',
+  DRG: 'dps',
+  NIN: 'dps',
+  SAM: 'dps',
+  RPR: 'dps',
+  VPR: 'dps',
+  BRD: 'dps',
+  MCH: 'dps',
+  DNC: 'dps',
+  BLM: 'dps',
+  SMN: 'dps',
+  RDM: 'dps',
+  BLU: 'dps',
+  PCT: 'dps',
+};
 const myDmuP3TargetFirstSecondOrder = ['D1', 'D2', 'D3', 'D4', 'MT', 'ST', 'H2', 'H1'];
 const myDmuP3TargetThirdOrder = ['MT', 'ST', 'D1', 'D2', 'D3', 'D4', 'H2', 'H1'];
 
@@ -272,7 +303,53 @@ const myDmuRolePriority = (role, order = myDmuRoleOrder) => {
 
 const myDmuRoleGroup = (role) => role?.startsWith('D') ? 'DPS' : 'TN';
 
-const myDmuGetRpByName = (data, name) => myDmuFl(data)?.getRpByName?.(data, name);
+const myDmuNormalizeRp = (role) => myDmuRoleOrder.includes(role) ? role : undefined;
+
+const myDmuPartyNames = (data) => data.party?.partyNames_ ?? data.party?.partyNames ?? [];
+
+const myDmuJobGroup = (job) => myDmuJobGroups[job?.toString().toUpperCase()];
+
+const myDmuDefaultRpByName = (data, name) => {
+  const partyNames = [...new Set(myDmuPartyNames(data))];
+  if (!partyNames.includes(name))
+    return undefined;
+
+  const entries = partyNames.map((partyName, index) => {
+    const job = data.party?.jobName?.(partyName)?.toString().toUpperCase();
+    const group = myDmuJobGroup(job) ?? data.party?.nameToRole_?.[partyName];
+    return {
+      name: partyName,
+      job: job,
+      group: group,
+      index: index,
+      priority: myDmuDefaultJobOrder.indexOf(job),
+    };
+  }).filter((entry) => entry.group === 'tank' || entry.group === 'healer' || entry.group === 'dps');
+
+  entries.sort((left, right) => {
+    const leftPriority = left.priority < 0 ? 999 : left.priority;
+    const rightPriority = right.priority < 0 ? 999 : right.priority;
+    return leftPriority - rightPriority || left.index - right.index;
+  });
+
+  const nextIndex = { tank: 0, healer: 0, dps: 0 };
+  const roles = {
+    tank: ['MT', 'ST'],
+    healer: ['H1', 'H2'],
+    dps: ['D1', 'D2', 'D3', 'D4'],
+  };
+  const roleByName = {};
+  for (const entry of entries) {
+    const role = roles[entry.group][nextIndex[entry.group]];
+    nextIndex[entry.group]++;
+    if (role !== undefined)
+      roleByName[entry.name] = role;
+  }
+  return roleByName[name];
+};
+
+const myDmuGetRpByName = (data, name) =>
+  myDmuNormalizeRp(myDmuFl(data)?.getRpByName?.(data, name)) ?? myDmuDefaultRpByName(data, name);
 
 const myDmuGetHexIdByName = (data, name) => {
   const fl = myDmuFl(data);
