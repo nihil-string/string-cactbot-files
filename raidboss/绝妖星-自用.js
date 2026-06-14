@@ -444,6 +444,8 @@ const myDmuP1CombatantPosX = (combatants, sourceId) => {
 
 const myDmuMarkActorKey = (actorId) => typeof actorId === 'string' ? actorId.toUpperCase() : `${actorId}`;
 
+const myDmuNewMarkState = () => ({ markers: {}, actors: {} });
+
 const myDmuEnsureMarkState = (data) => {
   data.myDmuMarkState ??= {};
   data.myDmuMarkState.markers ??= {};
@@ -508,7 +510,7 @@ const myDmuMarkQueue = (data, items, note) => {
 };
 
 const myDmuClearMarks = (data) => {
-  data.myDmuMarkState = { markers: {}, actors: {} };
+  data.myDmuMarkState = myDmuNewMarkState();
   if (!myDmuBooleanConfig(data, 'MyDMU_AutoMark', false))
     return;
   const fl = myDmuFl(data);
@@ -534,6 +536,7 @@ const myDmuClearMarks = (data) => {
 
 const myDmuResetP1 = (data) => {
   data.myDmuSpeech = {};
+  data.myDmuMarkState = myDmuNewMarkState();
   data.myDmuP1GravenCount = 0;
   data.myDmuP1Stage = 'opening';
   data.myDmuP1Fake = { fire: false, ice: false, thunder: false };
@@ -599,7 +602,7 @@ const myDmuResetP4 = (data) => {
 const myDmuInitState = () => ({
   myDmuPhase: 'p1',
   myDmuSpeech: {},
-  myDmuMarkState: { markers: {}, actors: {} },
+  myDmuMarkState: myDmuNewMarkState(),
   myDmuP1GravenCount: 0,
   myDmuP1Stage: 'opening',
   myDmuP1Fake: { fire: false, ice: false, thunder: false },
