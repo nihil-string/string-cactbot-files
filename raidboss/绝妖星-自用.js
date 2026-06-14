@@ -33,6 +33,8 @@ const myDmuP1ArrowBuffs = {
   '130E': '右',
   '130F': '左',
 };
+const myDmuP1PoisonBuff = '13D6';
+const myDmuP1PoisonMarkers = ['bind1', 'bind2'];
 const myDmuP2ARounds = new Set([1, 2, 3, 8]);
 const myDmuP2GuideRounds = new Set([2, 4, 6, 8]);
 const myDmuP2TowerSchemes = {
@@ -324,6 +326,38 @@ const myDmuP1RecordUniqueName = (list, name) => {
   list.push(name);
 };
 
+const myDmuP1PoisonEntries = (data) =>
+  data.myDmuP1PoisonTargets
+    .map((name) => ({
+      id: data.myDmuP1PoisonTargetIds?.[name] ?? myDmuGetHexIdByName(data, name),
+      name: name,
+      role: myDmuGetRpByName(data, name),
+    }))
+    .filter((entry) => entry.id !== undefined)
+    .sort((left, right) => myDmuRolePriority(left.role) - myDmuRolePriority(right.role));
+
+const myDmuApplyP1PoisonMarkers = (data, force = false) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P1PoisonMark'))
+    return false;
+
+  const desired = myDmuP1PoisonEntries(data)
+    .slice(0, 2)
+    .map((entry, index) => ({
+      id: entry.id,
+      marker: myDmuP1PoisonMarkers[index],
+    }));
+  if (desired.length < 2)
+    return false;
+
+  const signature = desired.map((item) => `${item.id}:${item.marker}`).join('|');
+  if (!force && data.myDmuP1PoisonMarkerSignature === signature)
+    return true;
+
+  data.myDmuP1PoisonMarkerSignature = signature;
+  myDmuMarkQueue(data, desired, '绝妖星 P1 5078锁链');
+  return true;
+};
+
 const myDmuP1CombatantPosX = (combatants, sourceId) => {
   const id = Number.parseInt(sourceId, 16);
   if (!Number.isFinite(id))
@@ -395,6 +429,8 @@ const myDmuResetP1 = (data) => {
   data.myDmuP1Fake = { fire: false, ice: false, thunder: false };
   data.myDmuP1Tethers = [];
   data.myDmuP1PoisonTargets = [];
+  data.myDmuP1PoisonTargetIds = {};
+  data.myDmuP1PoisonMarkerSignature = undefined;
   data.myDmuP1WaveCannonTargets = [];
   data.myDmuP1PlaceRock = false;
   data.myDmuP1FirstTethered = false;
@@ -458,6 +494,8 @@ const myDmuInitState = () => ({
   myDmuP1Fake: { fire: false, ice: false, thunder: false },
   myDmuP1Tethers: [],
   myDmuP1PoisonTargets: [],
+  myDmuP1PoisonTargetIds: {},
+  myDmuP1PoisonMarkerSignature: undefined,
   myDmuP1WaveCannonTargets: [],
   myDmuP1PlaceRock: false,
   myDmuP1FirstTethered: false,
@@ -1149,6 +1187,12 @@ Options.Triggers.push({
       default: true,
     },
     {
+      id: 'MyDMU_P1PoisonMark',
+      name: { en: '自用：P1 5078锁链标点' },
+      type: 'checkbox',
+      default: false,
+    },
+    {
       id: 'MyDMU_ForceTTS',
       name: { en: '自用：强制语音播报' },
       type: 'checkbox',
@@ -1323,23 +1367,37 @@ Options.Triggers.push({
     {
       id: '绝妖星 P1 连环环陷阱收集',
       type: 'GainsEffect',
-      netRegex: { effectId: '13D6', capture: true },
+      netRegex: { effectId: myDmuP1PoisonBuff, capture: true },
       condition: (data) => data.myDmuPhase === 'p1',
-      preRun: (data, matches) => myDmuP1RecordUniqueName(data.myDmuP1PoisonTargets, matches.target),
+      preRun: (data, matches) => {
+        myDmuP1RecordUniqueName(data.myDmuP1PoisonTargets, matches.target);
+        data.myDmuP1PoisonTargetIds[matches.target] = matches.targetId;
+        myDmuApplyP1PoisonMarkers(data);
+      },
     },
     {
       id: '绝妖星 P1 连环环陷阱移除',
       type: 'LosesEffect',
-      netRegex: { effectId: '13D6', capture: true },
+      netRegex: { effectId: myDmuP1PoisonBuff, capture: true },
       condition: (data) => data.myDmuPhase === 'p1',
       preRun: (data, matches) => {
         data.myDmuP1PoisonTargets = data.myDmuP1PoisonTargets.filter((name) => name !== matches.target);
+        delete data.myDmuP1PoisonTargetIds[matches.target];
+        data.myDmuP1PoisonMarkerSignature = undefined;
       },
+    },
+    {
+      id: '绝妖星 P1 5078锁链标点兜底',
+      type: 'StartsUsing',
+      netRegex: { id: ['BAA2', 'BAA3'], capture: false },
+      condition: (data) => data.myDmuPhase === 'p1',
+      suppressSeconds: 1,
+      run: (data) => myDmuRetryAction(() => myDmuApplyP1PoisonMarkers(data, true), 6, 250),
     },
     {
       id: '绝妖星 P1 连环环陷阱预兆',
       type: 'GainsEffect',
-      netRegex: { effectId: '13D6', capture: true },
+      netRegex: { effectId: myDmuP1PoisonBuff, capture: true },
       condition: (data) => myDmuP1CalloutEnabled(data),
       delaySeconds: (_data, matches) => Math.max((myDmuNumber(matches.duration) ?? 0) - 3.5, 0),
       durationSeconds: 3.5,
