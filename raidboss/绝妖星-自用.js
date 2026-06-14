@@ -578,6 +578,17 @@ const myDmuClearMarks = (data) => {
   });
 };
 
+const myDmuScheduleClearMarks = (data, key, delaySeconds = 0.5, condition = () => true) => {
+  data.myDmuClearMarkTimers ??= {};
+  if (data.myDmuClearMarkTimers[key] !== undefined)
+    clearTimeout(data.myDmuClearMarkTimers[key]);
+  data.myDmuClearMarkTimers[key] = setTimeout(() => {
+    delete data.myDmuClearMarkTimers?.[key];
+    if (condition(data))
+      myDmuClearMarks(data);
+  }, delaySeconds * 1000);
+};
+
 const myDmuResetP1 = (data) => {
   data.myDmuSpeech = {};
   data.myDmuMarkState = myDmuNewMarkState();
@@ -620,6 +631,7 @@ const myDmuResetP3Mahjong = (data) => {
     plan: undefined,
     marked: false,
     calloutShown: false,
+    resolveCount: 0,
   };
 };
 
@@ -680,6 +692,7 @@ const myDmuInitState = () => ({
     plan: undefined,
     marked: false,
     calloutShown: false,
+    resolveCount: 0,
   },
   myDmuP3Targets: {
     first: [],
@@ -1475,6 +1488,8 @@ Options.Triggers.push({
         } else if (data.myDmuPhase === 'p4') {
           myDmuResetP4(data);
           myDmuClearMarks(data);
+        } else if (data.myDmuPhase === 'p5') {
+          myDmuClearMarks(data);
         }
       },
     },
@@ -1562,6 +1577,9 @@ Options.Triggers.push({
         data.myDmuP1PoisonTargets = data.myDmuP1PoisonTargets.filter((name) => name !== matches.target);
         delete data.myDmuP1PoisonTargetIds[matches.target];
         data.myDmuP1PoisonMarkerSignature = undefined;
+        if (data.myDmuP1PoisonTargets.length === 0 && myDmuMarkEnabled(data, 'MyDMU_P1PoisonMark'))
+          myDmuScheduleClearMarks(data, 'p1Poison', 0.2, (data) =>
+            data.myDmuP1PoisonTargets.length === 0 && myDmuMarkEnabled(data, 'MyDMU_P1PoisonMark'));
       },
     },
     {
@@ -1894,6 +1912,9 @@ Options.Triggers.push({
       run: (data) => {
         const round = myDmuP2RecordAbilityRound(data);
         myDmuApplyP2Round(data, round);
+        if (round >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMark'))
+          myDmuScheduleClearMarks(data, 'p2Tower', 1.2, (data) =>
+            (data.myDmuP2AbilityRound ?? 0) >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMark'));
       },
     },
     {
@@ -1997,6 +2018,18 @@ Options.Triggers.push({
       run: (data) => myDmuSpeakCached(data, 'p3MahjongDirection'),
     },
     {
+      id: '绝妖星 P3 麻将结束清除标点',
+      type: 'Ability',
+      netRegex: { id: 'BAE4', capture: false },
+      condition: (data) => data.myDmuPhase === 'p3',
+      run: (data) => {
+        data.myDmuP3Mahjong.resolveCount ??= 0;
+        data.myDmuP3Mahjong.resolveCount++;
+        if (data.myDmuP3Mahjong.resolveCount >= 8 && data.myDmuP3Mahjong.marked)
+          myDmuScheduleClearMarks(data, 'p3Mahjong', 0.5, (data) => data.myDmuP3Mahjong.resolveCount >= 8);
+      },
+    },
+    {
       id: '绝妖星 P3 一二三目标',
       type: 'GainsEffect',
       netRegex: { effectId: Object.keys(myDmuP3TargetBuffs), capture: true },
@@ -2014,6 +2047,24 @@ Options.Triggers.push({
           role: myDmuGetRpByName(data, matches.target),
         });
         myDmuTryApplyP3TargetMarkers(data);
+      },
+    },
+    {
+      id: '绝妖星 P3 一二三目标清除标点',
+      type: 'LosesEffect',
+      netRegex: { effectId: Object.keys(myDmuP3TargetBuffs), capture: true },
+      condition: (data) => data.myDmuPhase === 'p3',
+      run: (data, matches) => {
+        const kind = myDmuP3TargetBuffs[matches.effectId.toUpperCase()];
+        if (kind === undefined)
+          return;
+        data.myDmuP3Targets[kind] = data.myDmuP3Targets[kind].filter((entry) => entry.id !== matches.targetId);
+        const remaining = data.myDmuP3Targets.first.length + data.myDmuP3Targets.second.length +
+          data.myDmuP3Targets.third.length;
+        if (remaining === 0 && data.myDmuP3Targets.marked)
+          myDmuScheduleClearMarks(data, 'p3Targets', 0.5, (data) =>
+            data.myDmuP3Targets.first.length + data.myDmuP3Targets.second.length +
+              data.myDmuP3Targets.third.length === 0 && data.myDmuP3Targets.marked);
       },
     },
     {
@@ -2057,6 +2108,17 @@ Options.Triggers.push({
       },
     },
     {
+      id: '绝妖星 P4 元素结束清除标点',
+      type: 'LosesEffect',
+      netRegex: { effectId: myDmuP4ElementBuffs, capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
+      run: (data, matches) => {
+        const round = myDmuP4RoundForTarget(data, matches.targetId, matches.effectId.toUpperCase()) ?? 'unknown';
+        if (data.myDmuP4.elementMarked[round])
+          myDmuScheduleClearMarks(data, `p4Element${round}`, 0.5, (data) => data.myDmuP4.elementMarked[round]);
+      },
+    },
+    {
       id: '绝妖星 P4 石化标点时机',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4PetrifyBuff, capture: true },
@@ -2064,6 +2126,17 @@ Options.Triggers.push({
       run: (data, matches) => {
         const round = myDmuP4RoundForTarget(data, matches.targetId, myDmuP4PetrifyBuff);
         myDmuRetryAction(() => myDmuApplyP4PetrifyRound(data, round));
+      },
+    },
+    {
+      id: '绝妖星 P4 石化结束清除标点',
+      type: 'LosesEffect',
+      netRegex: { effectId: myDmuP4PetrifyBuff, capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
+      run: (data, matches) => {
+        const round = myDmuP4RoundForTarget(data, matches.targetId, myDmuP4PetrifyBuff) ?? 'unknown';
+        if (data.myDmuP4.petrifyMarked[round])
+          myDmuScheduleClearMarks(data, `p4Petrify${round}`, 0.5, (data) => data.myDmuP4.petrifyMarked[round]);
       },
     },
     {
