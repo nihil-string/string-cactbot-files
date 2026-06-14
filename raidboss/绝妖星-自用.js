@@ -670,7 +670,7 @@ const myDmuEnsureP2Pair2222Groups = (data, entries) => {
   if (pairGroups.some((pair) => pair.some((entry) => entry === undefined)))
     return false;
 
-  const stackPairs = pairGroups.filter((pair) => pair.every((entry) => entry.mechanic === 'stack'));
+  const stackPairs = pairGroups.filter((pair) => pair.some((entry) => entry.mechanic === 'stack'));
   if (stackPairs.length !== 2)
     return false;
 
