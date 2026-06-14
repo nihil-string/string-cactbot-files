@@ -332,8 +332,19 @@ const myDmuParseRoleOrder = (value, fallback) => {
   return order;
 };
 
-const myDmuP3TargetFirstSecondPriority = (data) =>
-  myDmuParseRoleOrder(data.triggerSetConfig?.MyDMU_P3TargetFirstSecondPriority, myDmuP3TargetFirstSecondOrder);
+const myDmuP3TargetFirstPriority = (data) =>
+  myDmuParseRoleOrder(
+    data.triggerSetConfig?.MyDMU_P3TargetFirstPriority ??
+      data.triggerSetConfig?.MyDMU_P3TargetFirstSecondPriority,
+    myDmuP3TargetFirstSecondOrder,
+  );
+
+const myDmuP3TargetSecondPriority = (data) =>
+  myDmuParseRoleOrder(
+    data.triggerSetConfig?.MyDMU_P3TargetSecondPriority ??
+      data.triggerSetConfig?.MyDMU_P3TargetFirstSecondPriority,
+    myDmuP3TargetFirstSecondOrder,
+  );
 
 const myDmuP3TargetThirdPriority = (data) =>
   myDmuParseRoleOrder(data.triggerSetConfig?.MyDMU_P3TargetThirdPriority, myDmuP3TargetThirdOrder);
@@ -1153,12 +1164,13 @@ const myDmuTryApplyP3TargetMarkers = (data) => {
   if (state.first.length !== 3 || state.second.length !== 3 || state.third.length !== 2)
     return false;
 
-  const firstSecondOrder = myDmuP3TargetFirstSecondPriority(data);
+  const firstOrder = myDmuP3TargetFirstPriority(data);
+  const secondOrder = myDmuP3TargetSecondPriority(data);
   const thirdOrder = myDmuP3TargetThirdPriority(data);
   const desired = [];
-  myDmuSortTargetEntries(state.first, firstSecondOrder)
+  myDmuSortTargetEntries(state.first, firstOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['attack1', 'attack2', 'attack3'][index] }));
-  myDmuSortTargetEntries(state.second, firstSecondOrder)
+  myDmuSortTargetEntries(state.second, secondOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['bind1', 'bind2', 'bind3'][index] }));
   myDmuSortTargetEntries(state.third, thirdOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['stop1', 'stop2'][index] }));
@@ -1389,8 +1401,14 @@ Options.Triggers.push({
       default: false,
     },
     {
-      id: 'MyDMU_P3TargetFirstSecondPriority',
-      name: { en: '自用：P3 一/二目标优先级' },
+      id: 'MyDMU_P3TargetFirstPriority',
+      name: { en: '自用：P3 第一目标优先级' },
+      type: 'string',
+      default: myDmuRoleOrderText(myDmuP3TargetFirstSecondOrder),
+    },
+    {
+      id: 'MyDMU_P3TargetSecondPriority',
+      name: { en: '自用：P3 第二目标优先级' },
       type: 'string',
       default: myDmuRoleOrderText(myDmuP3TargetFirstSecondOrder),
     },
