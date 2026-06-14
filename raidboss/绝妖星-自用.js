@@ -455,7 +455,7 @@ const myDmuMarkQueue = (data, items, note) => {
       MarkType: item.marker,
       LocalOnly: localOnly,
     },
-    d: index === 0 || localOnly ? 0 : 120,
+    d: index === 0 ? 0 : 120,
   }));
   const fl = myDmuFl(data);
   if (fl?.doQueueActions !== undefined) {
@@ -758,8 +758,10 @@ const myDmuP2LegacyDesiredMarkers = (entries) => {
   const spreads = entries
     .filter((entry) => entry.mechanic === 'spread')
     .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
-  cones.forEach((entry, index) => desired.push({ id: entry.id, marker: ['bind1', 'bind2'][index] ?? 'bind2' }));
-  spreads.forEach((entry, index) => desired.push({ id: entry.id, marker: ['attack1', 'attack2'][index] ?? 'attack2' }));
+  cones.forEach((entry, index) =>
+    desired.push({ id: entry.id, marker: ['bind1', 'bind2', 'bind3', 'triangle'][index] ?? 'triangle' }));
+  spreads.forEach((entry, index) =>
+    desired.push({ id: entry.id, marker: ['attack1', 'attack2', 'attack3', 'circle'][index] ?? 'circle' }));
   return desired;
 };
 
@@ -796,9 +798,6 @@ const myDmuP2DesiredMarkers = (data, round) => {
 const myDmuApplyP2Round = (data, round) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P2TowerMark'))
     return false;
-  if (data.myDmuP2AppliedRounds?.[round] === true)
-    return true;
-
   const desired = myDmuP2DesiredMarkers(data, round);
   if (desired.length < 4)
     return false;
