@@ -1,0 +1,452 @@
+hideall "--Reset--"
+hideall "--sync--"
+hideall "绝妖星 P5 减伤 01"
+hideall "绝妖星 P5 减伤 02"
+hideall "绝妖星 P5 减伤 03"
+hideall "绝妖星 P5 减伤 04"
+hideall "绝妖星 P5 减伤 05"
+hideall "绝妖星 P5 减伤 06"
+hideall "绝妖星 P5 减伤 07"
+hideall "绝妖星 P5 减伤 08"
+hideall "绝妖星 P5 减伤 09"
+hideall "绝妖星 P5 减伤 10"
+hideall "绝妖星 P5 减伤 11"
+hideall "绝妖星 P5 减伤 12"
+hideall "绝妖星 P5 减伤 13"
+hideall "绝妖星 P5 减伤 14"
+hideall "绝妖星 P5 减伤 15"
+hideall "绝妖星 P5 减伤 16"
+hideall "绝妖星 P5 减伤 17"
+hideall "绝妖星 P5 减伤 18"
+0.0 "--Reset--" ActorControl { command: "4000000F" } window 0,100000 jump 0
+0.0 "--sync--" InCombat { inGameCombat: "1" } window 0,1
+### Phase 1 - Kefka
+# CN GameLog 0044 voiceline sync; C403 remains the combat-safe sync.
+# en (auto-translate): 'This is my first time, so please take it easy!'
+0.0 "--sync--" GameLog { code: "0044", line: "我是第一次来这里。.*请多关照" } window 0,2
+10.6 "--sync--" StartsUsing { id: "C403" } window 20,10
+15.6 "恶狠狠毁荡 1" Ability { id: "C403" }
+18.7 "恶狠狠毁荡 2" Ability { id: "C4E1" }
+24.8 "场中" Ability { id: "C3FD" }
+29.2 "众神之像 1" Ability { id: "BCF2" }
+35.1 "波动冲击" Ability { id: "BAA9" }
+37.4 "玄乎乎魔法" Ability { id: "BA94" }
+37.4 "扩大大冰封" #Ability { id: ["BA9B", "BA98"] }
+38.3 "呼啦啦爆炎" Ability { id: ["BAA2", "BAA3"] }
+42.5 "波动炮" Ability { id: "BAA8" }
+44.6 "连环环陷阱 1" Ability { id: "BAA6" }
+46.0 "大引爆" Ability { id: "BAAA" }
+49.6 "击退" # From 连环环陷阱 1
+49.7 "连环环陷阱 2" Ability { id: "BAA7" }
+53.7 "玄乎乎魔法" Ability { id: "BA94" }
+53.7 "劈啪啪暴雷" #Ability { id: ["BAA1", "BA9F"] }
+53.7 "扩大大冰封" #Ability { id: ["BA9B", "BA98"] }
+62.7 "制裁之光" Ability { id: "C622" }
+65.8 "超驱动 1" #Ability { id: "C24B" }
+67.8 "超驱动 2" #Ability { id: "C24B" }
+69.8 "超驱动 3" #Ability { id: "C24B" }
+75.6 "场中" Ability { id: "C3FD" }
+80.0 "众神之像 2" Ability { id: "BCF2" } window 10,10
+87.1 "扩大大冰封" #Ability { id: ["BA9B", "BA98"] }
+87.2 "重力弹" Ability { id: "BAAC" }
+91.2 "岩石弹" Ability { id: "BAB0" }
+97.1 "恶狠狠毁荡 1" Ability { id: "C403" }
+100.2 "恶狠狠毁荡 2" Ability { id: "C4E1" }
+101.1 "扑杀的神气/重力波" Ability { id: ["BAB2", "BAB1"] }
+105.8 "重力弹" Ability { id: "BAAC" }
+109.8 "岩石弹" Ability { id: "BAB0" }
+114.4 "扑杀的神气/重力波" Ability { id: ["BAB2", "BAB1"] }
+117.0 "强重力（弹窗）" #Ability { id: "BAAF" } duration 6 # ~1s remaining on debuff and until 45s on next
+118.0 "击退" # From 连环环陷阱 2
+118.1 "连环环陷阱 3" Ability { id: "BAA7" } # NOTE: If it was passed after first set.
+132.4 "制裁之光" Ability { id: "C622" }
+135.6 "超驱动 1" #Ability { id: "C24B" }
+137.7 "超驱动 2" #Ability { id: "C24B" }
+139.7 "超驱动 3" #Ability { id: "C24B" }
+151.5 "唰啦啦传送（读条）" Ability { id: "BAB9" }
+159.4 "唰啦啦传送 1" Ability { id: "BABA" }
+162.4 "唰啦啦传送 2" Ability { id: "BABA" }
+163.6 "众神之像 3" Ability { id: "BCF2" } window 10,10
+168.7 "--sync--" Ability { id: "C554" }
+170.6 "击退" # From 连环环陷阱 3
+173.4 "圣母的神气" Ability { id: "BAB5" }
+173.4 "睡魔的神气" #Ability { id: "BAB6" }
+177.7 "--sync--" Ability { id: "C555" }
+179.7 "场中" Ability { id: "C3FD" }
+186.3 "玄乎乎魔法" Ability { id: "BA94" }
+186.3 "劈啪啪暴雷" #Ability { id: ["BAA1", "BA9F"] }
+186.3 "懒惰的神气/圣母颂" #Ability { id: ["BAB4", "BAB3"] }
+187.1 "呼啦啦爆炎" Ability { id: ["BAA2", "BAA3"] }
+# Successful P1 transition voiceline, before the P1 enrage check.
+193.1 label "p2-pre"
+193.1 "--sync--" GameLog { code: "0044", line: "你们几个不是.*原来如此" } window 240,30 forcejump "p2-pre"
+202.4 label "p2"
+202.4 "--sync--" GameLog { code: "0044", line: "居然能把我重现出来.*" } window 80,30 forcejump "p2"
+202.5 "制裁之光（狂暴？）" Ability { id: "BABB" } # Kefka >15% HP
+### Phase 2 - God Kefka
+# Network-log calibrated from 2026-06-09..11 ACT logs after the true P2 voiceline and C24C ability sync.
+# Success route uses C3F7; fake-ending/enrage route uses BAE1.
+# CN GameLog 0044 true P2 sync: '绝！境！ 居然能把我重现出来！'
+# Sampled 68 local pulls: voiceline -> C24C StartsUsing avg 9.16s, C24C Ability avg 14.14s.
+# C24C remains the combat-safe sync.
+# Complete Path:
+# en: 'Yes... I am filled with glorious purpose!'
+# Duty Complete Path:
+# en: 'How boring. Guess I'll have to spice things up!'
+211.6 "--sync--" StartsUsing { id: "C24C" } window 80,10
+216.5 "终末双腕" Ability { id: "C24C" } window 220,5
+231.7 "遗弃末世" Ability { id: "BABC" }
+# Set 1
+# NOTE: The BAC0 咏唱危机·驱动, BAC2 咏唱危机·波动, BAC0 咏唱危机·散碎 can be resolved in different orders
+244.9 "光之波动 1" Ability { id: "BABE" }
+245.6 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+254.3 "未来终结/过去终结 1" Ability { id: ["BAD2", "BAD3"] }
+254.9 "光之波动 2" Ability { id: "BABE" }
+255.6 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+265.7 "消灭之脚" #Ability { id: ["BACD", "BADC", "BADD"] }
+# Set 2
+266.0 "光之波动 3" Ability { id: "BABE" }
+266.6 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+275.4 "未来终结/过去终结 2" Ability { id: ["BAD2", "BAD3"] }
+276.0 "光之波动 4" Ability { id: "BABE" }
+276.6 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+286.7 "消灭之脚" #Ability { id: ["BACD", "BADD"] }
+# Set 3
+287.0 "光之波动 5" Ability { id: "BABE" }
+287.6 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+296.1 "未来终结/过去终结 3" Ability { id: ["BAD2", "BAD3"] }
+297.0 "光之波动 6" Ability { id: "BABE" }
+297.7 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+307.5 "消灭之脚" #Ability { id: ["BACD", "BADC", "BADD"] }
+# Set 4
+308.1 "光之波动 7" Ability { id: "BABE" }
+308.7 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+317.0 "未来终结/过去终结 4" Ability { id: ["BAD2", "BAD3"] }
+318.1 "光之波动 8" Ability { id: "BABE" }
+318.7 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
+328.3 "消灭之脚" Ability { id: ["BACD", "BADC", "BADD"] }
+# 异三角
+337.4 "制裁之光" Ability { id: "BABD" }
+348.6 "异三角" Ability { id: "BADF" }
+355.7 "破坏之翼" Ability { id: "BACD" }
+361.5 "异三角 1" #Ability { id: "BAE0" }
+363.5 "异三角 2" #Ability { id: "BAE0" }
+365.5 "异三角 3" #Ability { id: "BAE0" }
+365.9 "破坏之翼" Ability { id: "C487" }
+365.9 "破坏之翼" #Ability { id: "BACF" }
+373.7 "终末双腕" Ability { id: "C24C" }
+376.2 "--sync--" StartsUsing { id: "BAE1" } jump "p2-enrage"
+380.2 "--sync--" StartsUsing { id: "C3F7" } jump "p2-success"
+381.2 "制裁之光（狂暴？）" #Ability { id: "BAE1" } # Kefka > 0% HP
+383.1 "疼飕飕暴风？" Ability { id: "C3F7" } forcejump "p2-success"
+# C3F7 StartsUsing jumps early; Ability forcejump keeps the p2-success label aligned.
+497.0 label "p2-success"
+500.0 "疼飕飕暴风" Ability { id: "C3F7" } window 500,20
+### Phase 3 - Chaos and Exdeath
+# Network-log calibrated from 2026-06-09..11 ACT logs after C3F7 forcejump.
+# BAE6/BAE7 and BAEA/BAEB vary by sequence; use array syncs below.
+# No stable P3 0044 voiceline found in sampled logs; ability syncs are retained.
+# en: 'Hmph. I see what's going on here.'
+537.7 "重构" Ability { id: "BAE2" }
+543.8 "决战" Ability { id: "C2E3" }
+543.8 "决战" #Ability { id: "C2E2" }
+548.0 "--sync--" Ability { id: "C554" }
+# Fire, Water, and Wind Elements
+563.1 "深层痛楚" Ability { id: "BAF2" }
+582.1 "混沌之水" Ability { id: "BAF6" }
+582.1 "暴雷" #Ability { id: "BB12" }
+583.1 "大海啸" Ability { id: "BAF5" }
+584.9 "气旋" Ability { id: "BAF8" }
+591.3 "暴雷" Ability { id: "BB09" }
+591.3 "暴雷" #Ability { id: "BB0C" }
+594.3 "暴雷" #Ability { id: "BB0C" }
+597.0 "--sync--" Ability { id: "C555" }
+603.0 "幻化" Ability { id: "C2D6" }
+604.2 "经度聚爆/纬度聚爆" Ability { id: ["BAFD", "BAFE"] }
+605.0 "震荡波" #Ability { id: "BAFF" }
+607.0 "震荡波" #Ability { id: "BAFF" }
+609.0 "混沌之炎" Ability { id: "BAF3" }
+610.0 "地狱之火炎" Ability { id: "BAF4" }
+611.7 "气旋" Ability { id: "BAF8" }
+# Limit Cut Preview
+620.3 "究极冲击波" #Ability { id: "BAE3" }
+622.3 "究极冲击波" #Ability { id: "BAE3" }
+624.3 "究极冲击波" #Ability { id: "BAE3" }
+624.4 "本影爆碎" Ability { id: "BB00" }
+626.3 "究极冲击波" #Ability { id: "BAE3" }
+627.3 "真空波" Ability { id: "BB13" }
+628.3 "究极冲击波" #Ability { id: "BAE3" }
+630.3 "究极冲击波" #Ability { id: "BAE3" }
+631.3 "气旋" Ability { id: "BAF8" }
+632.4 "究极冲击波" #Ability { id: "BAE3" }
+632.7 "以太连接" #Ability { id: "C2E5" }
+632.7 "以太连接" #Ability { id: "C2E4" }
+# Limit Cut
+634.4 "究极冲击波" #Ability { id: "BAE3" }
+642.4 "究极冲击波 1" #Ability { id: "BAE4" }
+642.6 "究极冲击波 2" #Ability { id: "BAE4" }
+642.8 "究极冲击波 3" #Ability { id: "BAE4" }
+643.0 "究极冲击波 4" #Ability { id: "BAE4" }
+643.2 "究极冲击波 5" #Ability { id: "BAE4" }
+643.4 "究极冲击波 6" #Ability { id: "BAE4" }
+643.6 "究极冲击波 7" #Ability { id: "BAE4" }
+643.8 "究极冲击波 8" #Ability { id: "BAE4" }
+649.7 "暴雷" Ability { id: "BB09" }
+649.7 "暴雷" #Ability { id: "BB0C" }
+652.7 "暴雷" #Ability { id: "BB0C" }
+657.7 "决战" Ability { id: "C2E3" }
+657.7 "决战" #Ability { id: "C2E2" }
+666.8 "暴雷" Ability { id: "BB09" }
+666.8 "暴雷" #Ability { id: "BB0C" }
+# Giant Kefka + Earth Element
+668.6 "放大" Ability { id: "BAE5" }
+669.8 "暴雷" #Ability { id: "BB0C" }
+671.8 "地震" Ability { id: "C571" }
+671.8 "地震" #Ability { id: "C572" }
+680.5 "地震" Ability { id: "BAFA" }
+684.1 "地震" Ability { id: "BAFA" }
+687.9 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] }
+688.6 "响亮亮耳光" #Ability { id: "BAE8" }
+689.3 "响亮亮耳光" #Ability { id: "BAE8" }
+689.9 "响亮亮耳光" #Ability { id: "BAE8" }
+691.2 "响亮亮耳光" Ability { id: "BAE9" }
+691.2 "震荡波/重冲击" #Ability { id: ["BAEA", "BAEB"] }
+691.2 "黑洞" Ability { id: "BAFB" }
+698.3 "无之波动" Ability { id: "BAFC" }
+698.3 "以太连接" #Ability { id: "C2E5" }
+698.3 "以太连接" #Ability { id: "C2E4" }
+705.3 "无之波动" Ability { id: "BAFC" }
+708.4 "暴雷" Ability { id: "BB09" }
+708.4 "暴雷" #Ability { id: "BB0C" }
+711.4 "暴雷" #Ability { id: "BB0C" }
+712.7 "地震" Ability { id: "BAFA" }
+716.5 "诅咒敕令" Ability { id: "BB01" }
+718.3 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] }
+719.1 "响亮亮耳光" #Ability { id: "BAE8" }
+719.7 "响亮亮耳光" #Ability { id: "BAE8" }
+720.4 "响亮亮耳光" #Ability { id: "BAE8" }
+721.7 "响亮亮耳光" Ability { id: "BAE9" }
+721.7 "震荡波/重冲击" #Ability { id: ["BAEA", "BAEB"] }
+724.6 "暗黑火花" Ability { id: "BCCD" }
+728.6 "无之波动" Ability { id: "BAFC" }
+730.2 "地震" Ability { id: "BAFA" }
+733.8 "无之波动" #Ability { id: "BAFC" }
+733.8 "无之波动" #Ability { id: "BAFC" }
+735.4 "地震" Ability { id: "BAFA" }
+739.0 "无之波动" Ability { id: "BAFC" }
+744.0 "诅咒敕令" Ability { id: "BB01" }
+744.4 "本色出演的我" Ability { id: "BAEC" }
+745.4 "本色出演的我" Ability { id: "BAEE" }
+747.5 "黑血" Ability { id: "C4BA" }
+747.5 "地震" Ability { id: "BAFA" }
+749.7 "暴雷" Ability { id: "BB09" }
+749.7 "暴雷" #Ability { id: "BB0C" }
+752.7 "暴雷" #Ability { id: "BB0C" }
+762.8 "无之波动" #Ability { id: "BAFC" }
+762.8 "无之波动" #Ability { id: "BAFC" }
+764.4 "地震" Ability { id: "BAFA" }
+765.0 "以太连接" Ability { id: "C2E5" }
+765.0 "以太连接" #Ability { id: "C2E4" }
+768.0 "无之波动" #Ability { id: "BAFC" }
+768.0 "无之波动" #Ability { id: "BAFC" }
+769.6 "地震" Ability { id: "BAFA" }
+773.2 "无之波动" #Ability { id: "BAFC" }
+773.2 "无之波动" #Ability { id: "BAFC" }
+784.2 "白洞" Ability { id: "BD66" }
+784.2 "经度聚爆/纬度聚爆" Ability { id: ["BAFD", "BAFE"] }
+785.0 "震荡波" #Ability { id: "BAFF" }
+786.3 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] }
+787.1 "响亮亮耳光" #Ability { id: "BAE8" }
+787.2 "震荡波" #Ability { id: "BAFF" }
+787.7 "响亮亮耳光" #Ability { id: "BAE8" }
+788.4 "响亮亮耳光" #Ability { id: "BAE8" }
+789.6 "响亮亮耳光" Ability { id: "BAE9" }
+789.6 "震荡波/重冲击" #Ability { id: ["BAEA", "BAEB"] }
+792.5 "暗黑火花" Ability { id: "BCCD" }
+796.5 "无之波动" #Ability { id: "BAFC" }
+796.5 "无之波动" #Ability { id: "BAFC" }
+802.2 "本色出演的我" Ability { id: "BAED" }
+803.2 "本色出演的我" Ability { id: "BAEE" }
+803.5 "无之波动" #Ability { id: "BAFC" }
+# Blizzards and Towers
+# Summary:
+# 1. Bait 2 Puddles
+# 2. Role 1 4-Stack
+# 3. Role 2 2-NW Towers
+# 4. Role 2 2-NE Towers
+# 5. Role 1 2-NW Towers
+# 6. Role 1 2-NE Towers
+# 7. Role 2 4-Stack
+# 8. Deep Freeze (Blizzard)
+805.3 "--sync--" Ability { id: "C533" }
+812.4 "冰封（读条）" Ability { id: "BB0F" }
+814.3 "地震？" #Ability { id: "BAFA" }
+815.4 "冰封 1" Ability { id: "BB0D" }
+816.3 "轰隆隆跺脚（读条）" Ability { id: "BAEF" } # Possibly determines which foot he starts with and/or its based on facing?
+817.9 "轰击 1" Ability { id: "BB02" }
+818.0 "轰隆隆跺脚 1" Ability { id: "BAF0" }
+818.4 "冰封 2" Ability { id: "BB0D" }
+819.3 "轰隆隆跺脚 2" Ability { id: "BAF0" }
+820.6 "轰隆隆跺脚 3" Ability { id: "BAF0" }
+821.9 "轰隆隆跺脚 4" Ability { id: "BAF0" }
+823.3 "轰击 2" Ability { id: "BB03" }
+826.4 "冰封" Ability { id: "BB11" }
+827.4 "顶起" Ability { id: "BB05" }
+827.4 "顶起" #Ability { id: "BB06" }
+840.8 "--sync--" StartsUsing { id: "C258" } jump "p3-enrage"
+840.8 "--sync--" StartsUsing { id: "C259" } jump "p3-enrage"
+845.8 "陨石流星（狂暴？）" Ability { id: "C258" } # Exdeath >0% HP?
+845.8 "深层痛楚（狂暴？）" Ability { id: "C259" } # Chaos >0% HP?
+### Phase 4 - Reborn Exdeath and Kefka
+# Source: 绝妖星乱舞时间轴-团减排轴一体机.xlsx, P4 sheet.
+# P4 label is aligned to C2DC StartsUsing. Excel P4 phase time is 10s earlier.
+900.0 label "p4"
+900.0 "闹哄哄魂击" StartsUsing { id: "C2DC" } window 360,10 forcejump "p4"
+905.0 "闹哄哄魂击" Ability { id: "C2DC" }
+909.6 "玄乎乎魔法 1" StartsUsing { id: "BA94" }
+909.6 "冰雷 1" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+910.0 "大十字 1" StartsUsing { id: "BB14" }
+914.6 "玄乎乎魔法 1" Ability { id: "BA94" }
+914.6 "冰雷 1" Ability { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+918.9 "大十字 1" Ability { id: "BB14" }
+924.5 "玄乎乎魔法 2" StartsUsing { id: "BA94" }
+924.5 "冰雷 2" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+925.0 "大十字 2" StartsUsing { id: "BB14" }
+929.5 "玄乎乎魔法 2" Ability { id: "BA94" }
+929.5 "冰雷 2" Ability { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+933.9 "大十字 2" Ability { id: "BB14" }
+939.7 "玄乎乎魔法 3" StartsUsing { id: "BA94" }
+939.7 "冰雷 3" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+940.0 "大十字 3" StartsUsing { id: "BB14" }
+944.7 "玄乎乎魔法 3" Ability { id: "BA94" }
+944.7 "冰雷 3" Ability { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+948.9 "大十字 3" Ability { id: "BB14" }
+956.0 "生者暗黑光/死者暗黑光" StartsUsing { id: ["C394", "C395", "C396"] }
+961.5 "生者暗黑光/死者暗黑光" Ability { id: ["C394", "C395", "C396"] }
+965.4 "死亡波涛" Ability { id: ["BB1C", "BB1D"] }
+966.8 "魔法储存" StartsUsing { id: "BAA4" }
+969.8 "魔法储存" Ability { id: "BAA4" }
+970.0 "死亡波纹/死亡落雷" Ability { id: ["BB18", "BB19", "BB1A", "BB1B"] }
+973.0 "劈啪啪暴雷" StartsUsing { id: ["BA9F", "BAA0", "BAA1", "C5DE"] }
+978.0 "劈啪啪暴雷" Ability { id: ["BA9F", "BAA0", "BAA1", "C5DE"] }
+979.1 "死亡尖叫 1" Ability { id: ["BB16", "BB17"] }
+983.2 "扑腾腾究极 1" StartsUsing { id: "C24A" }
+988.2 "扑腾腾究极 1" Ability { id: "C24A" }
+991.2 "扩大大冰封" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E"] }
+995.1 "死亡波纹/死亡落雷" Ability { id: ["BB18", "BB19", "BB1A", "BB1B"] }
+996.2 "扩大大冰封" Ability { id: ["BA95", "BA98", "BA9B", "BA9E"] }
+1002.6 "魔法放出" StartsUsing { id: "BAA5" }
+1003.0 "死亡尖叫 2" Ability { id: ["BB16", "BB17"] }
+1009.5 "魔法放出" Ability { id: "BAA5" }
+1022.0 "扑腾腾究极 2" StartsUsing { id: "C24A" }
+1027.0 "扑腾腾究极 2" Ability { id: "C24A" }
+### Phase 5 - Final Kefka
+# Local ACT calibrated from 12 P5 pulls through 2026-06-12.
+# Verified through BB3A enrage cast start on the clear pull.
+# BB3A impact is cast-time projected because the clear pull interrupted it before resolution.
+# Keep repeated-id sync windows narrow because BB40/BB37/BB38 repeat in P5.
+1042.9 label "p5"
+1042.9 "--sync--" GameLog { code: "0044", line: "既然你们执意要继续创造.*" } window 180,30 forcejump "p5"
+1049.9 label "p5-line2"
+1049.9 "--sync--" GameLog { code: "0044", line: "那我就继续破坏.*" } window 60,30 forcejump "p5-line2"
+1059.9 "--sync--" GameLog { code: "0044", line: "哈.*癫疯盛宴开始了.*" } window 30,10
+1061.1 "连续究极 1" StartsUsing { id: "BB40" } window 20,5
+1065.0 "连续究极 1" Ability { id: "BB40" }
+1065.8 "绝妖星 P5 减伤 01"
+1066.2 "连续究极 2" Ability { id: "BB41" }
+1066.9 "连续究极 3" Ability { id: "BB41" }
+1067.5 "连续究极 4" Ability { id: "BB41" }
+1068.3 "连续究极 5" Ability { id: "BB41" }
+1070.2 "魔击 1" Ability { id: ["C652", "C653", "C654", "C655"] }
+1070.8 "绝妖星 P5 减伤 02"
+1073.4 "魔击 2" Ability { id: ["C652", "C653", "C654", "C655"] }
+1076.5 "魔击 3" Ability { id: ["C652", "C653", "C654", "C655"] }
+1077.7 "洪水" StartsUsing { id: "C13F" }
+1082.6 "洪水" Ability { id: "C13F" }
+1083.7 "混沌洪水 1" Ability { id: ["BB4F", "C269"] }
+1083.8 "绝妖星 P5 减伤 03"
+1084.7 "混沌洪水 2" Ability { id: ["BB4F", "C269"] }
+1085.7 "混沌洪水 3" Ability { id: ["BB4F", "C269"] }
+1086.7 "混沌洪水 4" Ability { id: ["BB4F", "C269"] }
+1090.8 "癫狂交响曲 1" StartsUsing { id: "BB50" }
+1095.8 "癫狂交响曲 1" Ability { id: "BB50" }
+1096.7 "神圣/核爆 1" Ability { id: ["BB52", "BB54"] }
+1096.8 "绝妖星 P5 减伤 04"
+1099.0 "癫狂交响曲 1 回响" Ability { id: "BB51" }
+1099.9 "神圣/混沌核爆 1" Ability { id: ["BB53", "BB54"] }
+1099.8 "绝妖星 P5 减伤 05"
+1103.3 "混沌神圣/核爆扩散 1" Ability { id: ["BB55", "BB56"] }
+1107.1 "魔击 4" Ability { id: ["C652", "C653", "C654", "C655"] }
+1107.8 "绝妖星 P5 减伤 06"
+1110.2 "魔击 5" Ability { id: ["C652", "C653", "C654", "C655"] }
+1112.5 "三星" StartsUsing { id: "BB42" }
+1117.4 "三星" Ability { id: "BB42" }
+1121.6 "二选一的灾祟 1" StartsUsing { id: ["C24F", "C24E"] }
+1125.9 "二选一的灾祟 1" Ability { id: ["C24F", "C24E"] }
+1126.6 "暴雷/冰封/爆炎 1" Ability { id: ["BB43", "BB44", "BB45"] }
+1126.7 "地震/龙卷 1" Ability { id: ["BB4A", "BB4B"] }
+1126.8 "绝妖星 P5 减伤 07"
+1132.7 "暴雷/冰封/爆炎 2" Ability { id: ["BB43", "BB44", "BB45"] }
+1133.9 "二选一的灾祟 2" StartsUsing { id: ["C24F", "C24E"] }
+1134.8 "绝妖星 P5 减伤 08"
+1138.2 "二选一的灾祟 2" Ability { id: ["C24F", "C24E"] }
+1138.7 "暴雷/冰封/爆炎 3" Ability { id: ["BB43", "BB44", "BB45"] }
+1138.8 "绝妖星 P5 减伤 09"
+1139.0 "地震/龙卷 2" Ability { id: ["BB4A", "BB4B"] }
+1143.0 "连续究极 6" StartsUsing { id: "BB40" }
+1147.0 "连续究极 6" Ability { id: "BB40" }
+1147.8 "绝妖星 P5 减伤 10"
+1148.1 "连续究极 7" Ability { id: "BB41" }
+1148.8 "连续究极 8" Ability { id: "BB41" }
+1149.5 "连续究极 9" Ability { id: "BB41" }
+1150.2 "连续究极 10" Ability { id: "BB41" }
+1152.2 "魔击 6" Ability { id: ["C652", "C653", "C654", "C655"] }
+1155.4 "魔击 7" Ability { id: ["C652", "C653", "C654", "C655"] }
+1157.6 "混沌末世" StartsUsing { id: "BB3B" }
+1161.4 "混沌末世 1" Ability { id: "BB3B" }
+1162.1 "混沌末世扩散" Ability { id: "BB3D" }
+1173.6 "混沌涡旋" StartsUsing { id: "BB3E" }
+1178.6 "混沌涡旋" Ability { id: "BB3E" }
+1179.5 "混沌涡旋扩散" Ability { id: "BB3F" }
+1179.8 "绝妖星 P5 减伤 11"
+1182.8 "癫狂交响曲 2" StartsUsing { id: "BB50" }
+1187.8 "癫狂交响曲 2" Ability { id: "BB50" }
+1188.7 "神圣/核爆 2" Ability { id: ["BB52", "BB54"] }
+1188.8 "绝妖星 P5 减伤 12"
+1190.9 "癫狂交响曲 2 回响" Ability { id: "BB51" }
+1191.8 "神圣/混沌核爆 2" Ability { id: ["BB53", "BB54"] }
+1195.2 "混沌神圣/核爆扩散 2" Ability { id: ["BB55", "BB56"] }
+1199.1 "魔击 8" Ability { id: ["C652", "C653", "C654", "C655"] }
+1199.8 "绝妖星 P5 减伤 13"
+1202.2 "魔击 9" Ability { id: ["C652", "C653", "C654", "C655"] }
+1205.4 "魔击 10" Ability { id: ["C652", "C653", "C654", "C655"] }
+1206.9 "--sync--" GameLog { code: "0044", line: "没意思.*没意思.*没意思.*" } window 30,10
+1207.6 label "p5-forsaken"
+1207.6 "遗弃末世" StartsUsing { id: "BB35" } window 60,10 forcejump "p5-forsaken"
+1217.5 "遗弃末世 1" Ability { id: "BB35" }
+1217.6 "遗弃末世地面 1" StartsUsing { id: ["BB37", "BB38"] }
+1217.8 "绝妖星 P5 减伤 14"
+1222.8 "遗弃末世地面 1" Ability { id: ["BB37", "BB38", "BB39"] }
+1222.8 "绝妖星 P5 减伤 15"
+1225.8 "遗弃末世 2" Ability { id: "BB36" }
+1225.9 "遗弃末世地面 2" StartsUsing { id: ["BB37", "BB38"] }
+1226.8 "绝妖星 P5 减伤 16"
+1231.0 "遗弃末世地面 2" Ability { id: ["BB37", "BB38", "BB39"] }
+1231.8 "绝妖星 P5 减伤 17"
+1234.1 "遗弃末世 3" Ability { id: "BB36" }
+1234.2 "遗弃末世地面 3" StartsUsing { id: ["BB37", "BB38"] }
+1234.8 "绝妖星 P5 减伤 18"
+1239.2 "遗弃末世地面 3" Ability { id: ["BB37", "BB38", "BB39"] }
+1242.3 "遗弃末世 4" Ability { id: "BB36" }
+1242.4 "遗弃末世地面 4" StartsUsing { id: ["BB37", "BB38"] }
+1247.3 "遗弃末世地面 4" Ability { id: ["BB37", "BB38", "BB39"] }
+1252.4 label "p5-enrage"
+1252.4 "遗弃末点（狂暴）" StartsUsing { id: "BB3A" } window 60,10 forcejump "p5-enrage"
+1278.1 "遗弃末点（狂暴）" Ability { id: "BB3A" } # cast-time projection; clear log interrupted before resolution
+# Phase 2 Enrage Sequence
+10376.2 label "p2-enrage"
+10381.2 "制裁之光（狂暴）" Ability { id: "BAE1" } # Kefka > 0% HP
+# Phase 3 Enrage Sequence
+10840.8 label "p3-enrage"
+10845.8 "陨石流星（狂暴）" Ability { id: "C258" } # Exdeath >0% HP?
+10845.8 "深层痛楚（狂暴）" Ability { id: "C259" } # Chaos >0% HP?
