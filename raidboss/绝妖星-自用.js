@@ -442,8 +442,40 @@ const myDmuP1CombatantPosX = (combatants, sourceId) => {
   return combatants.find((combatant) => combatant.ID === id)?.PosX;
 };
 
+const myDmuMarkActorKey = (actorId) => typeof actorId === 'string' ? actorId.toUpperCase() : `${actorId}`;
+
+const myDmuEnsureMarkState = (data) => {
+  data.myDmuMarkState ??= {};
+  data.myDmuMarkState.markers ??= {};
+  data.myDmuMarkState.actors ??= {};
+  return data.myDmuMarkState;
+};
+
+const myDmuChangedMarks = (data, marks) => {
+  const state = myDmuEnsureMarkState(data);
+  const nextMarkers = { ...state.markers };
+  const nextActors = { ...state.actors };
+  const changed = [];
+  for (const mark of marks) {
+    const actorKey = myDmuMarkActorKey(mark.id);
+    const currentMarkerActor = nextMarkers[mark.marker];
+    const currentActorMarker = nextActors[actorKey];
+    if (currentMarkerActor === actorKey && currentActorMarker === mark.marker)
+      continue;
+    changed.push(mark);
+    if (currentActorMarker !== undefined && currentActorMarker !== mark.marker)
+      delete nextMarkers[currentActorMarker];
+    if (currentMarkerActor !== undefined && currentMarkerActor !== actorKey)
+      delete nextActors[currentMarkerActor];
+    nextMarkers[mark.marker] = actorKey;
+    nextActors[actorKey] = mark.marker;
+  }
+  data.myDmuMarkState = { markers: nextMarkers, actors: nextActors };
+  return changed;
+};
+
 const myDmuMarkQueue = (data, items, note) => {
-  const marks = items.filter((item) => item?.id !== undefined && item?.marker !== undefined);
+  const marks = myDmuChangedMarks(data, items.filter((item) => item?.id !== undefined && item?.marker !== undefined));
   if (marks.length === 0)
     return;
 
@@ -476,6 +508,7 @@ const myDmuMarkQueue = (data, items, note) => {
 };
 
 const myDmuClearMarks = (data) => {
+  data.myDmuMarkState = { markers: {}, actors: {} };
   if (!myDmuBooleanConfig(data, 'MyDMU_AutoMark', false))
     return;
   const fl = myDmuFl(data);
@@ -566,6 +599,7 @@ const myDmuResetP4 = (data) => {
 const myDmuInitState = () => ({
   myDmuPhase: 'p1',
   myDmuSpeech: {},
+  myDmuMarkState: { markers: {}, actors: {} },
   myDmuP1GravenCount: 0,
   myDmuP1Stage: 'opening',
   myDmuP1Fake: { fire: false, ice: false, thunder: false },
