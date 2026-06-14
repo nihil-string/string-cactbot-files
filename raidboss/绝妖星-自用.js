@@ -203,19 +203,6 @@ const myDmuP5MitigationTimelineTriggers = myDmuP5Mitigations.map((entry) => ({
   run: (data) => myDmuDoTextCommand(data, `/${myDmuP5MitigationChatChannel(data)} ${myDmuP5MitigationText(entry)}`),
 }));
 
-const myDmuP5ScholarShieldTimelineTrigger = {
-  id: '绝妖星 P5 学者扩散盾',
-  regex: /^绝妖星 P5 学者扩散盾$/,
-  durationSeconds: 5,
-  suppressSeconds: 1,
-  condition: (data) =>
-    data.job === 'SCH' && myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true),
-  infoText: (data) => myDmuCacheSpeech(data, 'p5ScholarShield', '扩散盾'),
-  tts: null,
-  soundVolume: 0,
-  run: (data) => myDmuSpeakCached(data, 'p5ScholarShield'),
-};
-
 const myDmuP2TowerTimelineTriggers = [...Array(8).keys()].map((index) => {
   const round = index + 1;
   return {
@@ -665,6 +652,7 @@ const myDmuResetP4 = (data) => {
     buffs: {},
     elementMarked: {},
     petrifyMarked: {},
+    flutteringUltimateCount: 0,
   };
 };
 
@@ -720,6 +708,7 @@ const myDmuInitState = () => ({
     buffs: {},
     elementMarked: {},
     petrifyMarked: {},
+    flutteringUltimateCount: 0,
   },
 });
 
@@ -1480,7 +1469,6 @@ Options.Triggers.push({
   timelineTriggers: [
     ...myDmuP2TowerTimelineTriggers,
     ...myDmuP5MitigationTimelineTriggers,
-    myDmuP5ScholarShieldTimelineTrigger,
     myDmuP3MahjongFallbackTimelineTrigger,
   ],
   triggers: [
@@ -2110,6 +2098,28 @@ Options.Triggers.push({
       preRun: (data, matches) => {
         myDmuP4CacheBuff(data, matches);
       },
+    },
+    {
+      id: '绝妖星 P5 学者扩散盾',
+      type: 'StartsUsing',
+      netRegex: { id: 'C24A', capture: false },
+      condition: (data) => data.myDmuPhase === 'p4',
+      preRun: (data) => data.myDmuP4.flutteringUltimateCount++,
+      delaySeconds: 9.1,
+      durationSeconds: 5,
+      suppressSeconds: 10,
+      infoText: (data) => {
+        if (
+          data.myDmuP4.flutteringUltimateCount !== 2 ||
+          data.job !== 'SCH' ||
+          !myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true)
+        )
+          return undefined;
+        return myDmuCacheSpeech(data, 'p5ScholarShield', '扩散盾');
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5ScholarShield'),
     },
     {
       id: '绝妖星 P4 元素标点时机',
