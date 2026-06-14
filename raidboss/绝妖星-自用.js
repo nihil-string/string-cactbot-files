@@ -203,6 +203,19 @@ const myDmuP5MitigationTimelineTriggers = myDmuP5Mitigations.map((entry) => ({
   run: (data) => myDmuDoTextCommand(data, `/${myDmuP5MitigationChatChannel(data)} ${myDmuP5MitigationText(entry)}`),
 }));
 
+const myDmuP5ScholarShieldTimelineTrigger = {
+  id: '绝妖星 P5 学者扩散盾',
+  regex: /^绝妖星 P5 学者扩散盾$/,
+  durationSeconds: 5,
+  suppressSeconds: 1,
+  condition: (data) =>
+    data.job === 'SCH' && myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true),
+  infoText: (data) => myDmuCacheSpeech(data, 'p5ScholarShield', '扩散盾'),
+  tts: null,
+  soundVolume: 0,
+  run: (data) => myDmuSpeakCached(data, 'p5ScholarShield'),
+};
+
 const myDmuP2TowerTimelineTriggers = [...Array(8).keys()].map((index) => {
   const round = index + 1;
   return {
@@ -1467,6 +1480,7 @@ Options.Triggers.push({
   timelineTriggers: [
     ...myDmuP2TowerTimelineTriggers,
     ...myDmuP5MitigationTimelineTriggers,
+    myDmuP5ScholarShieldTimelineTrigger,
     myDmuP3MahjongFallbackTimelineTrigger,
   ],
   triggers: [

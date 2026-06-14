@@ -18,6 +18,7 @@ hideall "绝妖星 P5 减伤 15"
 hideall "绝妖星 P5 减伤 16"
 hideall "绝妖星 P5 减伤 17"
 hideall "绝妖星 P5 减伤 18"
+hideall "绝妖星 P5 学者扩散盾"
 0.0 "--Reset--" ActorControl { command: "4000000F" } window 0,100000 jump 0
 0.0 "--sync--" InCombat { inGameCombat: "1" } window 0,1
 ### Phase 1 - Kefka
@@ -340,6 +341,7 @@ hideall "绝妖星 P5 减伤 18"
 1009.5 "魔法放出" Ability { id: "BAA5" }
 1022.0 "扑腾腾究极 2" StartsUsing { id: "C24A" }
 1027.0 "扑腾腾究极 2" Ability { id: "C24A" }
+1031.1 "绝妖星 P5 学者扩散盾"
 ### Phase 5 - Final Kefka
 # Local ACT calibrated from 12 P5 pulls through 2026-06-12.
 # Verified through BB3A enrage cast start on the clear pull.
