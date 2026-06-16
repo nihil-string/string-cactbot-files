@@ -73,6 +73,10 @@ const myDmuP2TowerSchemes = {
   roleStack: 'roleStack',
   pair2222: 'pair2222',
 };
+const myDmuP2Pair2222IdleOddModes = {
+  role: 'role',
+  cone: 'cone',
+};
 const myDmuP2Pair2222Groups = [
   ['MT', 'H1'],
   ['ST', 'H2'],
@@ -733,14 +737,38 @@ const myDmuP2EntryFromHeadmarker = (data, matches, mechanic) => {
 const myDmuP2TowerScheme = (data) =>
   data.triggerSetConfig?.MyDMU_P2TowerScheme ?? myDmuP2TowerSchemes.roleStack;
 
+const myDmuP2Pair2222IdleOddMode = (data) =>
+  data.triggerSetConfig?.MyDMU_P2Pair2222IdleOddMode ?? myDmuP2Pair2222IdleOddModes.role;
+
 const myDmuP2RoleSort = (entries, order = myDmuRoleOrder) =>
   [...entries].sort((a, b) => myDmuRolePriority(a.role, order) - myDmuRolePriority(b.role, order));
 
+const myDmuOddEvenSlotSort = (oddEntries, evenEntries) => {
+  const slots = [];
+  const oddSlots = [0, 2];
+  const evenSlots = [1, 3];
+  oddEntries.slice(0, 2).forEach((entry, index) => slots[oddSlots[index]] = entry);
+  evenEntries.slice(0, 2).forEach((entry, index) => slots[evenSlots[index]] = entry);
+
+  const overflow = [...oddEntries.slice(2), ...evenEntries.slice(2)];
+  for (let index = 0; index < 4; index++) {
+    if (slots[index] === undefined)
+      slots[index] = overflow.shift();
+  }
+  return slots.filter((entry) => entry !== undefined);
+};
+
 const myDmuP2IdleSort = (data, entries) =>
-  myDmuP2RoleSort(
-    entries,
-    myDmuP2TowerScheme(data) === myDmuP2TowerSchemes.pair2222 ? myDmuP2Pair2222IdleOrder : myDmuRoleOrder,
-  );
+  myDmuP2TowerScheme(data) === myDmuP2TowerSchemes.pair2222 &&
+  myDmuP2Pair2222IdleOddMode(data) === myDmuP2Pair2222IdleOddModes.cone
+    ? myDmuOddEvenSlotSort(
+      myDmuP2RoleSort(entries.filter((entry) => entry.mechanic === 'cone'), myDmuP2Pair2222IdleOrder),
+      myDmuP2RoleSort(entries.filter((entry) => entry.mechanic !== 'cone'), myDmuP2Pair2222IdleOrder),
+    )
+    : myDmuP2RoleSort(
+      entries,
+      myDmuP2TowerScheme(data) === myDmuP2TowerSchemes.pair2222 ? myDmuP2Pair2222IdleOrder : myDmuRoleOrder,
+    );
 
 const myDmuEnsureP2RoleStackGroups = (data, entries) => {
   const groupA = [];
@@ -801,7 +829,11 @@ const myDmuP2ActiveGroup = (data, round) =>
   myDmuP2ARounds.has(round) ? data.myDmuP2GroupA : data.myDmuP2GroupB;
 
 const myDmuP2IdleGroup = (data, round) =>
-  myDmuP2IdleSort(data, myDmuP2ARounds.has(round) ? data.myDmuP2GroupB : data.myDmuP2GroupA);
+  myDmuP2IdleSort(
+    data,
+    (myDmuP2ARounds.has(round) ? data.myDmuP2GroupB : data.myDmuP2GroupA)
+      .map((entry) => data.myDmuP2Current?.[entry.id] ?? entry),
+  );
 
 const myDmuP2RoundEntries = (data, round) => {
   if (!myDmuEnsureP2Groups(data))
@@ -1410,6 +1442,18 @@ Options.Triggers.push({
         },
       },
       default: myDmuP2TowerSchemes.roleStack,
+    },
+    {
+      id: 'MyDMU_P2Pair2222IdleOddMode',
+      name: { en: '自用：P2 2222 固定闲人奇数规则' },
+      type: 'select',
+      options: {
+        en: {
+          '固定闲人的 TN 是奇数': myDmuP2Pair2222IdleOddModes.role,
+          '固定扇形的闲人是奇数': myDmuP2Pair2222IdleOddModes.cone,
+        },
+      },
+      default: myDmuP2Pair2222IdleOddModes.role,
     },
     {
       id: 'MyDMU_P2TowerCallout',
