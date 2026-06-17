@@ -1829,7 +1829,7 @@ Options.Triggers.push({
           '方案二：2222 固定搭档': myDmuP2TowerSchemes.pair2222,
         },
       },
-      default: myDmuP2TowerSchemes.roleStack,
+      default: myDmuP2TowerSchemes.pair2222,
     },
     {
       id: 'MyDMU_P2Pair2222IdleOddMode',
