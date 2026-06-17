@@ -1,0 +1,11 @@
+StringDownloader 安装说明
+
+1. 在 ACT 插件列表里加载 StringDownloader.dll。
+2. 打开插件页，确认 cactbot user/raidboss 目录。
+3. 下载器固定连接公开仓库 nihil-string/string-cactbot-files，不需要 token。
+4. 勾选要更新的文件，点击“开始下崽”。
+5. 下载完成后重载 Raidboss 悬浮窗。
+
+说明：
+- 插件只更新勾选文件，不会删除其他触发器。
+- 如果旧版本曾保存过私有仓库配置，新版本会自动改回公开下载源。
