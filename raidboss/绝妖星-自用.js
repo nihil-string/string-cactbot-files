@@ -157,6 +157,7 @@ const myDmuP4AccelerationBuff = '15AA';
 const myDmuP4ChaosBuffs = ['15AB', '15AC'];
 const myDmuP4PersonalActionBuffs = [
   ...myDmuP4ElementBuffs,
+  myDmuP4PetrifyBuff,
   myDmuP4AccelerationBuff,
   ...myDmuP4ChaosBuffs,
 ];
@@ -569,6 +570,56 @@ const myDmuMarkQueue = (data, items, note) => {
   });
 };
 
+const myDmuForgetMarkState = (data, items) => {
+  const state = myDmuEnsureMarkState(data);
+  const nextMarkers = { ...state.markers };
+  const nextActors = { ...state.actors };
+  for (const item of items) {
+    if (item?.id === undefined || item?.marker === undefined)
+      continue;
+    const actorKey = myDmuMarkActorKey(item.id);
+    if (nextActors[actorKey] === item.marker)
+      delete nextActors[actorKey];
+    if (nextMarkers[item.marker] === actorKey)
+      delete nextMarkers[item.marker];
+  }
+  data.myDmuMarkState = { markers: nextMarkers, actors: nextActors };
+};
+
+const myDmuClearMarkQueue = (data, items, note) => {
+  const marks = items.filter((item) => item?.id !== undefined && item?.marker !== undefined);
+  if (marks.length === 0)
+    return;
+
+  myDmuForgetMarkState(data, marks);
+  const localOnly = myDmuMarkLocalOnly(data);
+  const queue = marks.map((item, index) => ({
+    c: 'mark',
+    p: {
+      ActorID: item.id,
+      MarkType: item.marker,
+      LocalOnly: localOnly,
+    },
+    d: index === 0 ? 0 : 120,
+  }));
+  const fl = myDmuFl(data);
+  if (fl?.doQueueActions !== undefined) {
+    fl.doQueueActions(queue, note);
+    return;
+  }
+  callOverlayHandler({
+    call: 'PostNamazu',
+    c: 'DoQueueActions',
+    p: JSON.stringify(queue.map((item) => ({
+      ...item,
+      p: JSON.stringify({
+        ...item.p,
+        ActorID: typeof item.p.ActorID === 'string' ? Number.parseInt(item.p.ActorID, 16) : item.p.ActorID,
+      }),
+    }))),
+  });
+};
+
 const myDmuClearMarks = (data) => {
   data.myDmuMarkState = myDmuNewMarkState();
   if (!myDmuBooleanConfig(data, 'MyDMU_AutoMark', false))
@@ -666,6 +717,8 @@ const myDmuResetP3Targets = (data) => {
 };
 
 const myDmuResetP4 = (data) => {
+  for (const timer of Object.values(data.myDmuP4?.markTimers ?? {}))
+    clearTimeout(timer);
   data.myDmuP4 = {
     truth: { ex: undefined, chaos: undefined },
     truthAt: { ex: undefined, chaos: undefined },
@@ -675,7 +728,12 @@ const myDmuResetP4 = (data) => {
     buffChatSent: {},
     buffSerial: 0,
     elementMarked: {},
+    elementCleared: {},
     petrifyMarked: {},
+    petrifyCleared: {},
+    markAssignments: {},
+    markAppliedAt: {},
+    markTimers: {},
     flutteringUltimateCount: 0,
   };
 };
@@ -735,7 +793,12 @@ const myDmuInitState = () => ({
     buffChatSent: {},
     buffSerial: 0,
     elementMarked: {},
+    elementCleared: {},
     petrifyMarked: {},
+    petrifyCleared: {},
+    markAssignments: {},
+    markAppliedAt: {},
+    markTimers: {},
     flutteringUltimateCount: 0,
   },
 });
@@ -1372,6 +1435,22 @@ const myDmuP4RecordExpiresAt = (rec) => {
   return firstSeenAt + duration * 1000;
 };
 
+const myDmuP4RoundText = (length) => {
+  if (length === 'short')
+    return '第一轮';
+  if (length === 'long')
+    return '第二轮';
+  return undefined;
+};
+
+const myDmuP4ClassifyForRecord = (data, rec) => {
+  if (myDmuP4ElementBuffs.includes(rec?.buffId))
+    return myDmuP4ClassifyLengths(myDmuP4RecordsFor(data, myDmuP4ElementBuffs));
+  if (rec?.buffId === myDmuP4PetrifyBuff)
+    return myDmuP4ClassifyLengths(myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]));
+  return true;
+};
+
 const myDmuSendP4BuffChat = (data, key, text) => {
   if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
     return true;
@@ -1388,11 +1467,19 @@ const myDmuP4OwnRecordsFor = (data, buffIds) =>
 
 const myDmuP4ElementActionText = (rec) => {
   const side = myDmuP4ElementSide(rec);
-  if (side === 'out')
-    return '分散';
-  if (side === 'in')
-    return '分摊';
+  const round = myDmuP4RoundText(rec?.length);
+  if (side === 'out' && round !== undefined)
+    return `${round}分散`;
+  if (side === 'in' && round !== undefined)
+    return `${round}分摊`;
   return undefined;
+};
+
+const myDmuP4PetrifyActionText = (rec) => {
+  const round = myDmuP4RoundText(rec?.length);
+  if (round === undefined || rec?.truth === undefined)
+    return undefined;
+  return `${round}${rec.truth ? '真石化' : '假石化'}`;
 };
 
 const myDmuP4AccelerationActionText = (rec) => {
@@ -1416,6 +1503,8 @@ const myDmuP4ChaosActionText = (rec) => {
 const myDmuP4ActionText = (rec) => {
   if (myDmuP4ElementBuffs.includes(rec?.buffId))
     return myDmuP4ElementActionText(rec);
+  if (rec?.buffId === myDmuP4PetrifyBuff)
+    return myDmuP4PetrifyActionText(rec);
   if (rec?.buffId === myDmuP4AccelerationBuff)
     return myDmuP4AccelerationActionText(rec);
   if (myDmuP4ChaosBuffs.includes(rec?.buffId))
@@ -1424,6 +1513,7 @@ const myDmuP4ActionText = (rec) => {
 };
 
 const myDmuTrySendP4ElementChat = (data) => {
+  myDmuP4ClassifyLengths(myDmuP4RecordsFor(data, myDmuP4ElementBuffs));
   const ownRecords = myDmuP4OwnRecordsFor(data, myDmuP4ElementBuffs);
   if (ownRecords.length === 0)
     return true;
@@ -1437,6 +1527,25 @@ const myDmuTrySendP4ElementChat = (data) => {
       continue;
     }
     myDmuSendP4BuffChat(data, myDmuP4BuffChatKey('element', rec), `P4记忆：${action}`);
+  }
+  return ready;
+};
+
+const myDmuTrySendP4PetrifyChat = (data) => {
+  myDmuP4ClassifyLengths(myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]));
+  const ownRecords = myDmuP4OwnRecordsFor(data, [myDmuP4PetrifyBuff]);
+  if (ownRecords.length === 0)
+    return true;
+
+  let ready = true;
+  for (const rec of ownRecords) {
+    myDmuP4RefreshRecordTruth(data, rec);
+    const action = myDmuP4PetrifyActionText(rec);
+    if (action === undefined) {
+      ready = false;
+      continue;
+    }
+    myDmuSendP4BuffChat(data, myDmuP4BuffChatKey('petrify', rec), `P4记忆：${action}`);
   }
   return ready;
 };
@@ -1463,6 +1572,7 @@ const myDmuTrySendP4ExecuteChat = (data, rec) => {
   if (rec === undefined)
     return false;
   myDmuP4RefreshRecordTruth(data, rec);
+  myDmuP4ClassifyForRecord(data, rec);
   const action = myDmuP4ActionText(rec);
   if (action === undefined)
     return false;
@@ -1510,32 +1620,103 @@ const myDmuTrySendP4BuffChats = (data) => {
   if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
     return true;
   const elementReady = myDmuTrySendP4ElementChat(data);
+  const petrifyReady = myDmuTrySendP4PetrifyChat(data);
   const accelerationReady = myDmuTrySendP4AccelerationChat(data);
   const chaosReady = myDmuTrySendP4ChaosChat(data);
-  return elementReady && accelerationReady && chaosReady;
+  return elementReady && petrifyReady && accelerationReady && chaosReady;
+};
+
+const myDmuP4PetrifyKind = (round) => `petrify-${round}`;
+
+const myDmuP4RoundRecords = (data, buffIds, round) => {
+  const records = myDmuP4RecordsFor(data, buffIds);
+  myDmuP4ClassifyLengths(records);
+  return records.filter((rec) => rec.length === round);
+};
+
+const myDmuP4MinExpiresAt = (records) => {
+  const expiries = records.map((rec) => myDmuP4RecordExpiresAt(rec)).filter((time) => time !== undefined);
+  if (expiries.length === 0)
+    return undefined;
+  return Math.min(...expiries);
+};
+
+const myDmuP4ScheduleTimer = (data, key, delayMs, callback) => {
+  data.myDmuP4.markTimers ??= {};
+  if (data.myDmuP4.markTimers[key] !== undefined)
+    clearTimeout(data.myDmuP4.markTimers[key]);
+  data.myDmuP4.markTimers[key] = setTimeout(() => {
+    delete data.myDmuP4.markTimers?.[key];
+    callback();
+  }, Math.max(delayMs, 0));
+};
+
+const myDmuP4SetKindMarkers = (data, kind, desired, note) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMark'))
+    return false;
+  if (desired.length === 0)
+    return false;
+  myDmuMarkQueue(data, desired, note);
+  data.myDmuP4.markAssignments ??= {};
+  data.myDmuP4.markAppliedAt ??= {};
+  data.myDmuP4.markAssignments[kind] = desired.map((item) => ({ ...item }));
+  data.myDmuP4.markAppliedAt[kind] = Date.now();
+  return true;
+};
+
+const myDmuP4ClearKind = (data, kind, reason) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMark'))
+    return false;
+  const assignments = data.myDmuP4.markAssignments?.[kind] ?? [];
+  if (assignments.length > 0)
+    myDmuClearMarkQueue(data, assignments, `绝妖星 P4 清除 ${kind} ${reason ?? ''}`);
+  delete data.myDmuP4.markAssignments?.[kind];
+  if (kind === 'short' || kind === 'long')
+    data.myDmuP4.elementCleared[kind] = true;
+  if (kind === myDmuP4PetrifyKind('short'))
+    data.myDmuP4.petrifyCleared.short = true;
+  if (kind === myDmuP4PetrifyKind('long'))
+    data.myDmuP4.petrifyCleared.long = true;
+  myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, `after-clear-${kind}`), 10, 250);
+  return true;
+};
+
+const myDmuP4ScheduleKindClear = (data, kind, records, minVisibleMs = 0) => {
+  const expiresAt = myDmuP4MinExpiresAt(records);
+  const now = Date.now();
+  let dueAt = expiresAt === undefined ? now + 800 : expiresAt + 800;
+  const markedAt = data.myDmuP4.markAppliedAt?.[kind];
+  if (typeof markedAt === 'number')
+    dueAt = Math.max(dueAt, markedAt + minVisibleMs);
+  myDmuP4ScheduleTimer(data, `clear-${kind}`, dueAt - now, () =>
+    myDmuP4ClearKind(data, kind, 'timer'));
 };
 
 const myDmuApplyP4ElementRound = (data, round) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMark'))
     return false;
-  if (data.myDmuP4.elementMarked[round])
+  if (round === undefined || data.myDmuP4.elementMarked[round])
     return true;
+  if (round === 'long' && (!data.myDmuP4.elementCleared.short || !data.myDmuP4.petrifyCleared.short))
+    return false;
 
-  const records = myDmuP4RecordsFor(data, myDmuP4ElementBuffs);
-  myDmuP4ClassifyLengths(records);
+  const records = myDmuP4RoundRecords(data, myDmuP4ElementBuffs, round);
   const targets = { TN: undefined, DPS: undefined };
   for (const rec of records) {
-    if (rec.length === round && myDmuP4ElementSide(rec) === 'out' && targets[rec.group] === undefined)
+    if (myDmuP4ElementSide(rec) === 'out' && targets[rec.group] === undefined)
       targets[rec.group] = rec;
   }
   if (targets.TN === undefined || targets.DPS === undefined)
     return false;
 
-  myDmuMarkQueue(data, [
+  const desired = [
     { id: targets.TN.id, marker: 'attack1' },
     { id: targets.DPS.id, marker: 'attack2' },
-  ], `绝妖星 P4 元素 ${round}`);
+  ];
+  if (!myDmuP4SetKindMarkers(data, round, desired, `绝妖星 P4 元素 ${round}`))
+    return false;
   data.myDmuP4.elementMarked[round] = true;
+  myDmuP4ScheduleKindClear(data, round, records, 0);
   return true;
 };
 
@@ -1544,14 +1725,17 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
     return false;
   if (round === undefined || data.myDmuP4.petrifyMarked[round])
     return false;
+  if (!data.myDmuP4.elementCleared[round])
+    return false;
+  if (round === 'long' && (!data.myDmuP4.elementCleared.short || !data.myDmuP4.petrifyCleared.short))
+    return false;
 
-  const records = myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]);
-  myDmuP4ClassifyLengths(records);
+  const records = myDmuP4RoundRecords(data, [myDmuP4PetrifyBuff], round);
   const realRecords = records
-    .filter((rec) => rec.length === round && rec.truth === true)
+    .filter((rec) => rec.truth === true)
     .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
   const fakeRecords = records
-    .filter((rec) => rec.length === round && rec.truth === false)
+    .filter((rec) => rec.truth === false)
     .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
   if (realRecords.length + fakeRecords.length < 2)
     return false;
@@ -1559,10 +1743,31 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
   const desired = [];
   realRecords.forEach((rec, index) => desired.push({ id: rec.id, marker: ['stop1', 'stop2'][index] ?? 'stop2' }));
   fakeRecords.forEach((rec, index) => desired.push({ id: rec.id, marker: ['bind1', 'bind2'][index] ?? 'bind2' }));
-  myDmuMarkQueue(data, desired, `绝妖星 P4 石化 ${round}`);
+  const kind = myDmuP4PetrifyKind(round);
+  if (!myDmuP4SetKindMarkers(data, kind, desired, `绝妖星 P4 石化 ${round}`))
+    return false;
   data.myDmuP4.petrifyMarked[round] = true;
+  myDmuP4ScheduleKindClear(data, kind, records, round === 'long' ? 3500 : 0);
   return true;
 };
+
+function myDmuProcessP4MarkTiming(data, source = 'process') {
+  if (data.myDmuPhase !== 'p4' || !myDmuMarkEnabled(data, 'MyDMU_P4BuffMark'))
+    return true;
+
+  if (!data.myDmuP4.elementMarked.short && !data.myDmuP4.elementCleared.short)
+    return myDmuApplyP4ElementRound(data, 'short');
+  if (data.myDmuP4.elementCleared.short && !data.myDmuP4.petrifyMarked.short && !data.myDmuP4.petrifyCleared.short)
+    return myDmuApplyP4PetrifyRound(data, 'short');
+  if (!data.myDmuP4.petrifyCleared.short)
+    return true;
+
+  if (!data.myDmuP4.elementMarked.long && !data.myDmuP4.elementCleared.long)
+    return myDmuApplyP4ElementRound(data, 'long');
+  if (data.myDmuP4.elementCleared.long && !data.myDmuP4.petrifyMarked.long && !data.myDmuP4.petrifyCleared.long)
+    return myDmuApplyP4PetrifyRound(data, 'long');
+  return true;
+}
 
 const myDmuP4RoundForTarget = (data, targetId, buffId, duration) => {
   const records = myDmuP4RecordsFor(data, [buffId]);
@@ -2334,6 +2539,7 @@ Options.Triggers.push({
           return;
         myDmuP4RecordTruth(data, truth.target, truth.value);
         myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
+        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-status'), 12, 250);
       },
     },
     {
@@ -2346,6 +2552,7 @@ Options.Triggers.push({
           return;
         myDmuP4RecordTruth(data, truth.target, truth.value);
         myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
+        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-headmarker'), 12, 250);
       },
     },
     {
@@ -2355,6 +2562,7 @@ Options.Triggers.push({
       preRun: (data, matches) => {
         myDmuP4CacheBuff(data, matches);
         myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
+        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'buff-cache'), 12, 250);
       },
     },
     {
@@ -2401,16 +2609,7 @@ Options.Triggers.push({
       id: '绝妖星 P4 元素标点时机',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4ElementBuffs, capture: true },
-      delaySeconds: (_data, matches) => Math.max((myDmuNumber(matches.duration) ?? 0) - 5, 0),
-      run: (data, matches) => {
-        const round = myDmuP4RoundForTarget(
-          data,
-          matches.targetId,
-          matches.effectId.toUpperCase(),
-          myDmuNumber(matches.duration),
-        );
-        myDmuRetryAction(() => myDmuApplyP4ElementRound(data, round));
-      },
+      run: (data) => myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'element-fallback'), 12, 250),
     },
     {
       id: '绝妖星 P4 元素结束清除标点',
@@ -2424,24 +2623,16 @@ Options.Triggers.push({
           matches.effectId.toUpperCase(),
           myDmuNumber(matches.duration),
         ) ?? 'unknown';
-        if (data.myDmuP4.elementMarked[round])
-          myDmuScheduleClearMarks(data, `p4Element${round}`, 0.5, (data) => data.myDmuP4.elementMarked[round]);
+        if (data.myDmuP4.elementMarked[round] && !data.myDmuP4.elementCleared[round])
+          myDmuP4ScheduleTimer(data, `lose-element-${round}`, 800, () =>
+            myDmuP4ClearKind(data, round, 'lose-effect'));
       },
     },
     {
       id: '绝妖星 P4 石化标点时机',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4PetrifyBuff, capture: true },
-      delaySeconds: (_data, matches) => Math.max((myDmuNumber(matches.duration) ?? 0) - 2.5, 0),
-      run: (data, matches) => {
-        const round = myDmuP4RoundForTarget(
-          data,
-          matches.targetId,
-          myDmuP4PetrifyBuff,
-          myDmuNumber(matches.duration),
-        );
-        myDmuRetryAction(() => myDmuApplyP4PetrifyRound(data, round));
-      },
+      run: (data) => myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'petrify-fallback'), 12, 250),
     },
     {
       id: '绝妖星 P4 石化结束清除标点',
@@ -2455,8 +2646,10 @@ Options.Triggers.push({
           myDmuP4PetrifyBuff,
           myDmuNumber(matches.duration),
         ) ?? 'unknown';
-        if (data.myDmuP4.petrifyMarked[round])
-          myDmuScheduleClearMarks(data, `p4Petrify${round}`, 0.5, (data) => data.myDmuP4.petrifyMarked[round]);
+        const kind = myDmuP4PetrifyKind(round);
+        if (data.myDmuP4.petrifyMarked[round] && !data.myDmuP4.petrifyCleared[round])
+          myDmuP4ScheduleTimer(data, `lose-${kind}`, 800, () =>
+            myDmuP4ClearKind(data, kind, 'lose-effect'));
       },
     },
     {
