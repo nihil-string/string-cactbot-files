@@ -319,12 +319,15 @@ hideall "--sync--"
 1002.6 "魔法放出" StartsUsing { id: "BAA5" }
 1003.0 "死亡尖叫 2" Ability { id: ["BB16", "BB17"] }
 1009.5 "魔法放出" Ability { id: "BAA5" }
+1020.5 label "p4-success"
+1020.5 "--sync--" Ability { id: "C3FD" } window 90,5 forcejump "p4-success"
 1022.0 "扑腾腾究极 2" StartsUsing { id: "C24A" }
 1027.0 "扑腾腾究极 2" Ability { id: "C24A" }
 ### Phase 5 - Final Kefka
 # Local ACT calibrated from 12 P5 pulls through 2026-06-12.
 # Verified through BB3A enrage cast start on the clear pull.
 # BB3A impact is cast-time projected because the clear pull interrupted it before resolution.
+# Official cactbot also resyncs P5 with C3FD, C652, BB3C, and BB3A.
 1042.9 label "p5"
 1042.9 "--sync--" GameLog { code: "0044", line: "既然你们执意要继续创造.*" } window 180,30 forcejump "p5"
 1049.9 label "p5-line2"
@@ -336,8 +339,11 @@ hideall "--sync--"
 1066.9 "连续究极 3" Ability { id: "BB41" }
 1067.5 "连续究极 4" Ability { id: "BB41" }
 1068.3 "连续究极 5" Ability { id: "BB41" }
+1070.2 "--sync--" Ability { id: "C652" }
 1070.2 "魔击 1" Ability { id: ["C652", "C653", "C654", "C655"] }
+1073.4 "--sync--" Ability { id: "C652" }
 1073.4 "魔击 2" Ability { id: ["C652", "C653", "C654", "C655"] }
+1076.5 "--sync--" Ability { id: "C652" }
 1076.5 "魔击 3" Ability { id: ["C652", "C653", "C654", "C655"] }
 1077.7 "洪水" StartsUsing { id: "C13F" }
 1082.6 "洪水" Ability { id: "C13F" }
@@ -351,7 +357,9 @@ hideall "--sync--"
 1099.0 "癫狂交响曲 1 回响" Ability { id: "BB51" }
 1099.9 "神圣/混沌核爆 1" Ability { id: ["BB53", "BB54"] }
 1103.3 "混沌神圣/核爆扩散 1" Ability { id: ["BB55", "BB56"] }
+1107.1 "--sync--" Ability { id: "C652" }
 1107.1 "魔击 4" Ability { id: ["C652", "C653", "C654", "C655"] }
+1110.2 "--sync--" Ability { id: "C652" }
 1110.2 "魔击 5" Ability { id: ["C652", "C653", "C654", "C655"] }
 1112.5 "三星" StartsUsing { id: "BB42" }
 1117.4 "三星" Ability { id: "BB42" }
@@ -370,11 +378,19 @@ hideall "--sync--"
 1148.8 "连续究极 8" Ability { id: "BB41" }
 1149.5 "连续究极 9" Ability { id: "BB41" }
 1150.2 "连续究极 10" Ability { id: "BB41" }
+1152.2 "--sync--" Ability { id: "C652" }
 1152.2 "魔击 6" Ability { id: ["C652", "C653", "C654", "C655"] }
+1155.4 "--sync--" Ability { id: "C652" }
 1155.4 "魔击 7" Ability { id: ["C652", "C653", "C654", "C655"] }
 1157.6 "混沌末世" StartsUsing { id: "BB3B" }
+1157.6 "--sync--" StartsUsing { id: "BB3C" }
+1160.1 "--sync--" StartsUsing { id: "BB3C" }
 1161.4 "混沌末世 1" Ability { id: "BB3B" }
 1162.1 "混沌末世扩散" Ability { id: "BB3D" }
+1162.6 "--sync--" StartsUsing { id: "BB3C" }
+1165.1 "--sync--" StartsUsing { id: "BB3C" }
+1167.6 "--sync--" StartsUsing { id: "BB3C" }
+1170.1 "--sync--" StartsUsing { id: "BB3C" }
 1173.6 "混沌涡旋" StartsUsing { id: "BB3E" }
 1178.6 "混沌涡旋" Ability { id: "BB3E" }
 1179.5 "混沌涡旋扩散" Ability { id: "BB3F" }
@@ -384,8 +400,11 @@ hideall "--sync--"
 1190.9 "癫狂交响曲 2 回响" Ability { id: "BB51" }
 1191.8 "神圣/混沌核爆 2" Ability { id: ["BB53", "BB54"] }
 1195.2 "混沌神圣/核爆扩散 2" Ability { id: ["BB55", "BB56"] }
+1199.1 "--sync--" Ability { id: "C652" }
 1199.1 "魔击 8" Ability { id: ["C652", "C653", "C654", "C655"] }
+1202.2 "--sync--" Ability { id: "C652" }
 1202.2 "魔击 9" Ability { id: ["C652", "C653", "C654", "C655"] }
+1205.4 "--sync--" Ability { id: "C652" }
 1205.4 "魔击 10" Ability { id: ["C652", "C653", "C654", "C655"] }
 1206.9 "--sync--" GameLog { code: "0044", line: "没意思.*没意思.*没意思.*" } window 30,10
 1207.6 label "p5-forsaken"
