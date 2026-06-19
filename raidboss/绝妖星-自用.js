@@ -167,6 +167,25 @@ const myDmuP4TrackedBuffs = [
   myDmuP4AccelerationBuff,
   ...myDmuP4ChaosBuffs,
 ];
+const myDmuPartyMarkerLabels = {
+  attack1: '攻击1',
+  attack2: '攻击2',
+  attack3: '攻击3',
+  attack4: '攻击4',
+  attack5: '攻击5',
+  attack6: '攻击6',
+  attack7: '攻击7',
+  attack8: '攻击8',
+  bind1: '锁链1',
+  bind2: '锁链2',
+  bind3: '锁链3',
+  stop1: '禁止1',
+  stop2: '禁止2',
+  square: '方形',
+  circle: '圆圈',
+  cross: '叉形',
+  triangle: '三角',
+};
 
 const myDmuP5Mitigations = [
   { id: '01', skill: '连续究极 x4', target: 'MT血仇 D1牵制 扳手', field: '步道 策动 节制+盾 罩子' },
@@ -200,6 +219,9 @@ const myDmuP5MitigationText = (entry) => {
 
 const myDmuP5MitigationChatChannel = (data) =>
   data.triggerSetConfig?.MyDMU_P5MitigationChannel ?? 'e';
+
+const myDmuP4BuffChatChannel = (data) =>
+  data.triggerSetConfig?.MyDMU_P4BuffChatChannel === 'p' ? 'p' : 'e';
 
 const myDmuDoTextCommand = (data, text) => {
   const fl = myDmuFl(data);
@@ -1424,6 +1446,8 @@ const myDmuP4ElementSide = (rec) => {
   return undefined;
 };
 
+const myDmuPartyMarkerLabel = (marker) => myDmuPartyMarkerLabels[marker] ?? marker;
+
 const myDmuP4BuffChatKey = (prefix, rec) =>
   `${prefix}:${rec?.serial ?? ''}:${rec?.id ?? ''}:${rec?.buffId ?? ''}:${rec?.initialDuration ?? rec?.duration ?? ''}`;
 
@@ -1457,9 +1481,61 @@ const myDmuSendP4BuffChat = (data, key, text) => {
   data.myDmuP4.buffChatSent ??= {};
   if (data.myDmuP4.buffChatSent[key])
     return true;
-  myDmuDoTextCommand(data, `/e ${text}`);
+  myDmuDoTextCommand(data, `/${myDmuP4BuffChatChannel(data)} ${text}`);
   data.myDmuP4.buffChatSent[key] = true;
   return true;
+};
+
+const myDmuP4RoleListText = (records) => {
+  const roles = [...records]
+    .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role))
+    .map((rec) => rec.role ?? rec.id ?? '?');
+  return roles.length > 0 ? roles.join(',') : '无';
+};
+
+const myDmuP4ElementSpreadTargets = (data, round) => {
+  const records = myDmuP4RecordsFor(data, myDmuP4ElementBuffs);
+  myDmuP4ClassifyLengths(records);
+  const targets = { TN: undefined, DPS: undefined };
+  for (const rec of records) {
+    if (rec.length === round && myDmuP4ElementSide(rec) === 'out' && targets[rec.group] === undefined)
+      targets[rec.group] = rec;
+  }
+  return targets;
+};
+
+const myDmuTrySendP4LongAttack12Chat = (data) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMark'))
+    return true;
+  const targets = myDmuP4ElementSpreadTargets(data, 'long');
+  if (targets.TN === undefined || targets.DPS === undefined)
+    return false;
+  const plan = [
+    { rec: targets.TN, marker: 'attack1' },
+    { rec: targets.DPS, marker: 'attack2' },
+  ];
+  const text = plan
+    .map((item) => `${myDmuPartyMarkerLabel(item.marker)} ${item.rec.role ?? item.rec.id ?? '?'}`)
+    .join('；');
+  return myDmuSendP4BuffChat(data, 'p4-buff-long-attack12', `第二轮攻击12：${text}`);
+};
+
+const myDmuTrySendP4LongPetrifyChat = (data) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMark'))
+    return true;
+  const records = myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]);
+  myDmuP4ClassifyLengths(records);
+  const longRecords = records
+    .filter((rec) => rec.length === 'long' && rec.truth !== undefined)
+    .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
+  if (longRecords.length < 2)
+    return false;
+  const petrifyLabel = longRecords[0].truth ? '真石化' : '假石化';
+  return myDmuSendP4BuffChat(
+    data,
+    'p4-buff-long-petrify',
+    `第二轮石化：${petrifyLabel} ${myDmuP4RoleListText(longRecords)}`,
+  );
 };
 
 const myDmuP4OwnRecordsFor = (data, buffIds) =>
@@ -1568,6 +1644,50 @@ const myDmuTrySendP4AccelerationChat = (data) => {
   return ready;
 };
 
+const myDmuTrySendP4AccelerationGroupChat = (data) => {
+  const records = myDmuP4RecordsFor(data, [myDmuP4AccelerationBuff])
+    .filter((rec) => {
+      myDmuP4RefreshRecordTruth(data, rec);
+      return rec.truth !== undefined;
+    })
+    .sort((a, b) => {
+      const seenDelta = (a.firstSeenAt ?? 0) - (b.firstSeenAt ?? 0);
+      if (Math.abs(seenDelta) > 1000)
+        return seenDelta;
+      return myDmuRolePriority(a.role) - myDmuRolePriority(b.role);
+    });
+  if (records.length === 0)
+    return true;
+
+  const clusters = [];
+  for (const rec of records) {
+    let cluster = clusters.find((cluster) => Math.abs((rec.firstSeenAt ?? 0) - cluster.startedAt) <= 7000);
+    if (cluster === undefined) {
+      cluster = { startedAt: rec.firstSeenAt ?? 0, entries: [] };
+      clusters.push(cluster);
+    }
+    cluster.entries.push(rec);
+  }
+
+  let ready = true;
+  clusters.forEach((cluster, index) => {
+    if (cluster.entries.length < 4) {
+      ready = false;
+      return;
+    }
+    cluster.entries.sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
+    const staticRoles = cluster.entries.filter((rec) => rec.truth === true).map((rec) => rec.role ?? rec.id ?? '?');
+    const movingRoles = cluster.entries.filter((rec) => rec.truth === false).map((rec) => rec.role ?? rec.id ?? '?');
+    const staticText = staticRoles.length > 0 ? staticRoles.join(',') : '无';
+    const movingText = movingRoles.length > 0 ? movingRoles.join(',') : '无';
+    const message = staticRoles.length > 0 && movingRoles.length === 0 ? `静：${staticText}` :
+      movingRoles.length > 0 && staticRoles.length === 0 ? `动：${movingText}` :
+        `静：${staticText}；动：${movingText}`;
+    myDmuSendP4BuffChat(data, `p4-buff-accel-${index + 1}`, message);
+  });
+  return ready;
+};
+
 const myDmuTrySendP4ExecuteChat = (data, rec) => {
   if (rec === undefined)
     return false;
@@ -1580,40 +1700,24 @@ const myDmuTrySendP4ExecuteChat = (data, rec) => {
 };
 
 const myDmuTrySendP4ChaosChat = (data) => {
-  const ownRecords = myDmuP4OwnRecordsFor(data, myDmuP4ChaosBuffs);
-  if (ownRecords.length === 0)
+  const records = myDmuP4RecordsFor(data, myDmuP4ChaosBuffs);
+  if (records.length === 0)
     return true;
 
-  let ready = true;
-  const fires = ownRecords.filter((rec) => rec.buffId === '15AB').sort((a, b) => (a.firstSeenAt ?? 0) - (b.firstSeenAt ?? 0));
-  const waters = ownRecords.filter((rec) => rec.buffId === '15AC').sort((a, b) => (a.firstSeenAt ?? 0) - (b.firstSeenAt ?? 0));
-  const pairCount = Math.max(fires.length, waters.length);
-  for (let index = 0; index < pairCount; index++) {
-    const pair = [fires[index], waters[index]].filter((rec) => rec !== undefined);
-    if (pair.length < 2) {
-      ready = false;
-      continue;
-    }
-    const ordered = pair.sort((a, b) => {
-      const aAt = myDmuP4RecordExpiresAt(a);
-      const bAt = myDmuP4RecordExpiresAt(b);
-      if (aAt !== undefined && bAt !== undefined)
-        return aAt - bAt;
-      return (a.initialDuration ?? a.duration ?? 0) - (b.initialDuration ?? b.duration ?? 0);
-    });
-    const actions = ordered.map((rec) => {
-      myDmuP4RefreshRecordTruth(data, rec);
-      return myDmuP4ChaosActionText(rec);
-    });
-    if (actions.some((action) => action === undefined)) {
-      ready = false;
-      continue;
-    }
-
-    const key = ordered.map((rec) => myDmuP4BuffChatKey('chaos', rec)).join('|');
-    myDmuSendP4BuffChat(data, key, `P4记忆：先${actions[0]} 后${actions[1]}`);
+  myDmuP4ClassifyLengths(records);
+  let first;
+  let second;
+  for (const rec of records) {
+    myDmuP4RefreshRecordTruth(data, rec);
+    const action = myDmuP4ChaosActionText(rec);
+    if (rec.length === 'short' && first === undefined)
+      first = action;
+    if (rec.length === 'long' && second === undefined)
+      second = action;
   }
-  return ready;
+  if (first === undefined || second === undefined)
+    return false;
+  return myDmuSendP4BuffChat(data, 'p4-buff-chaos', `P4钢月：先${first} 后${second}`);
 };
 
 const myDmuTrySendP4BuffChats = (data) => {
@@ -1622,8 +1726,12 @@ const myDmuTrySendP4BuffChats = (data) => {
   const elementReady = myDmuTrySendP4ElementChat(data);
   const petrifyReady = myDmuTrySendP4PetrifyChat(data);
   const accelerationReady = myDmuTrySendP4AccelerationChat(data);
+  const accelerationGroupReady = myDmuTrySendP4AccelerationGroupChat(data);
   const chaosReady = myDmuTrySendP4ChaosChat(data);
-  return elementReady && petrifyReady && accelerationReady && chaosReady;
+  const longAttackReady = myDmuTrySendP4LongAttack12Chat(data);
+  const longPetrifyReady = myDmuTrySendP4LongPetrifyChat(data);
+  return elementReady && petrifyReady && accelerationReady && accelerationGroupReady &&
+    chaosReady && longAttackReady && longPetrifyReady;
 };
 
 const myDmuP4PetrifyKind = (round) => `petrify-${round}`;
@@ -1701,11 +1809,7 @@ const myDmuApplyP4ElementRound = (data, round) => {
     return false;
 
   const records = myDmuP4RoundRecords(data, myDmuP4ElementBuffs, round);
-  const targets = { TN: undefined, DPS: undefined };
-  for (const rec of records) {
-    if (myDmuP4ElementSide(rec) === 'out' && targets[rec.group] === undefined)
-      targets[rec.group] = rec;
-  }
+  const targets = myDmuP4ElementSpreadTargets(data, round);
   if (targets.TN === undefined || targets.DPS === undefined)
     return false;
 
@@ -1717,6 +1821,10 @@ const myDmuApplyP4ElementRound = (data, round) => {
     return false;
   data.myDmuP4.elementMarked[round] = true;
   myDmuP4ScheduleKindClear(data, round, records, 0);
+  if (round === 'long') {
+    myDmuTrySendP4LongAttack12Chat(data);
+    myDmuTrySendP4LongPetrifyChat(data);
+  }
   return true;
 };
 
@@ -1748,6 +1856,10 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
     return false;
   data.myDmuP4.petrifyMarked[round] = true;
   myDmuP4ScheduleKindClear(data, kind, records, round === 'long' ? 3500 : 0);
+  if (round === 'short')
+    myDmuTrySendP4LongAttack12Chat(data);
+  if (round === 'long')
+    myDmuTrySendP4LongPetrifyChat(data);
   return true;
 };
 
@@ -1759,11 +1871,15 @@ function myDmuProcessP4MarkTiming(data, source = 'process') {
     return myDmuApplyP4ElementRound(data, 'short');
   if (data.myDmuP4.elementCleared.short && !data.myDmuP4.petrifyMarked.short && !data.myDmuP4.petrifyCleared.short)
     return myDmuApplyP4PetrifyRound(data, 'short');
+  if (data.myDmuP4.petrifyMarked.short)
+    myDmuTrySendP4LongAttack12Chat(data);
   if (!data.myDmuP4.petrifyCleared.short)
     return true;
 
   if (!data.myDmuP4.elementMarked.long && !data.myDmuP4.elementCleared.long)
     return myDmuApplyP4ElementRound(data, 'long');
+  if (data.myDmuP4.elementMarked.long)
+    myDmuTrySendP4LongPetrifyChat(data);
   if (data.myDmuP4.elementCleared.long && !data.myDmuP4.petrifyMarked.long && !data.myDmuP4.petrifyCleared.long)
     return myDmuApplyP4PetrifyRound(data, 'long');
   return true;
@@ -1905,9 +2021,16 @@ Options.Triggers.push({
     },
     {
       id: 'MyDMU_P4BuffChat',
-      name: { en: '自用：P4 Buff 默语提示' },
+      name: { en: '自用：P4 Buff 聊天框提示' },
       type: 'checkbox',
       default: true,
+    },
+    {
+      id: 'MyDMU_P4BuffChatChannel',
+      name: { en: '自用：P4 Buff 聊天频道' },
+      type: 'select',
+      options: { en: { '默语 /e': 'e', '小队 /p': 'p' } },
+      default: 'e',
     },
     {
       id: 'MyDMU_P5MitigationAlert',
