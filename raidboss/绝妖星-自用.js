@@ -119,6 +119,7 @@ const myDmuP3MahjongDirectMarkers = {
 };
 const myDmuP3MahjongLeftMarkers = ['attack1', 'attack2', 'attack3', 'attack4'];
 const myDmuP3MahjongRightMarkers = ['bind1', 'bind2', 'bind3', 'square'];
+const myDmuP3MahjongLineMaxPointDistance = 10;
 const myDmuP3MahjongPoints = [
   { index: 1, label: 'A', x: 100, z: 88 },
   { index: 2, label: '1', x: 108.485, z: 91.515 },
@@ -143,6 +144,10 @@ const myDmuP3ElementDebuffs = {
 };
 
 const myDmuP4TruthHeadmarkers = {
+  '02A3': { target: 'chaos', value: false },
+  '02A4': { target: 'chaos', value: true },
+  '02A5': { target: 'ex', value: false },
+  '02A6': { target: 'ex', value: true },
   '045F': { target: 'chaos', value: false },
   '0460': { target: 'chaos', value: true },
   '0461': { target: 'ex', value: false },
@@ -161,6 +166,34 @@ const myDmuP4PersonalActionBuffs = [
   myDmuP4AccelerationBuff,
   ...myDmuP4ChaosBuffs,
 ];
+const myDmuP4MagicStorageStartId = 'BAA4';
+const myDmuP4MagicReleaseId = 'BAA5';
+const myDmuP4MagicStorageLabels = {
+  BA9F: { element: 'thunder', label: '真雷' },
+  BAA1: { element: 'thunder', label: '假雷' },
+  BA98: { element: 'ice', label: '真冰' },
+  BA9E: { element: 'ice', label: '假冰' },
+};
+const myDmuP4MagicReleaseHeadmarkers = {
+  '02A3': { element: 'ice', invert: true, label: '冰问号' },
+  '02A4': { element: 'ice', invert: false, label: '冰无问号' },
+  '02A5': { element: 'thunder', invert: true, label: '雷问号' },
+  '02A6': { element: 'thunder', invert: false, label: '雷无问号' },
+  '045F': { element: 'ice', invert: true, label: '冰问号' },
+  '0460': { element: 'ice', invert: false, label: '冰无问号' },
+  '0461': { element: 'thunder', invert: true, label: '雷问号' },
+  '0462': { element: 'thunder', invert: false, label: '雷无问号' },
+};
+
+const myDmuNewP4MagicStorage = (previous, keepCount = false) => ({
+  active: false,
+  storeCount: keepCount ? previous?.storeCount ?? 0 : 0,
+  labels: { thunder: [], ice: [] },
+  baseLabels: {},
+  release: { seen: {}, mods: {}, markers: [] },
+  seen: {},
+  expireAt: 0,
+});
 const myDmuP4TrackedBuffs = [
   ...myDmuP4ElementBuffs,
   myDmuP4PetrifyBuff,
@@ -722,6 +755,8 @@ const myDmuResetP3Mahjong = (data) => {
   data.myDmuP3Mahjong = {
     markers: {},
     lines: [],
+    lineSources: {},
+    earlyShockwaveSeen: false,
     plan: undefined,
     marked: false,
     calloutShown: false,
@@ -756,6 +791,7 @@ const myDmuResetP4 = (data) => {
     markAssignments: {},
     markAppliedAt: {},
     markTimers: {},
+    magicStorage: myDmuNewP4MagicStorage(),
     flutteringUltimateCount: 0,
   };
 };
@@ -1235,6 +1271,20 @@ const myDmuApplyP3MahjongMarkers = (data) => {
 };
 
 const myDmuRecordP3MahjongLine = (data, matches) => {
+  const actionId = matches.id?.toUpperCase();
+  if (actionId !== 'BAE3' && actionId !== 'BAE4')
+    return;
+  const state = data.myDmuP3Mahjong;
+  state.lineSources ??= {};
+  if (actionId === 'BAE3')
+    state.earlyShockwaveSeen = true;
+  else if (state.earlyShockwaveSeen)
+    return;
+
+  const sourceKey = `${actionId}:${matches.sourceId ?? matches.source ?? ''}`;
+  if (state.lineSources[sourceKey])
+    return;
+
   const x = myDmuNumber(matches.x);
   const z = myDmuNumber(matches.y) ?? myDmuNumber(matches.z);
   if (x === undefined || z === undefined)
@@ -1243,12 +1293,18 @@ const myDmuRecordP3MahjongLine = (data, matches) => {
   const point = myDmuNearestMahjongPoint(x, z);
   if (point === undefined)
     return;
+  if (point.distance > myDmuP3MahjongLineMaxPointDistance)
+    return;
 
-  const state = data.myDmuP3Mahjong;
   if (state.lines.some((line) => line.point.index === point.index))
     return;
 
-  state.lines.push({ point: point });
+  state.lineSources[sourceKey] = true;
+  state.lines.push({
+    point: point,
+    sourceId: matches.sourceId,
+    actionId: actionId,
+  });
   if (state.lines.length === 2)
     state.plan = myDmuBuildMahjongPlan(state.lines);
 };
@@ -1734,6 +1790,193 @@ const myDmuTrySendP4BuffChats = (data) => {
     chaosReady && longAttackReady && longPetrifyReady;
 };
 
+const myDmuP4RoundRecordsReady = (records, expected, requireTruth = true) => {
+  if (records.length < expected)
+    return false;
+  if (requireTruth && records.some((rec) => rec.truth === undefined))
+    return false;
+  return true;
+};
+
+const myDmuP4RecordsStillActive = (records) => {
+  const expiresAt = myDmuP4MinExpiresAt(records);
+  return expiresAt === undefined || Date.now() <= expiresAt;
+};
+
+const myDmuP4MagicEnsureStorage = (data) => {
+  data.myDmuP4.magicStorage ??= myDmuNewP4MagicStorage();
+  const st = data.myDmuP4.magicStorage;
+  st.labels ??= { thunder: [], ice: [] };
+  st.labels.thunder ??= [];
+  st.labels.ice ??= [];
+  st.baseLabels ??= {};
+  st.release ??= { seen: {}, mods: {}, markers: [] };
+  st.release.seen ??= {};
+  st.release.mods ??= {};
+  st.release.markers ??= [];
+  st.seen ??= {};
+  return st;
+};
+
+const myDmuP4MagicResetRelease = (data, keepChannel = false) => {
+  const st = myDmuP4MagicEnsureStorage(data);
+  const old = st.release ?? {};
+  st.release = {
+    seen: {},
+    mods: {},
+    markers: [],
+    channelSeen: keepChannel && old.channelSeen === true,
+    channelAt: keepChannel ? old.channelAt : undefined,
+    entityID: keepChannel ? old.entityID : undefined,
+  };
+  return st.release;
+};
+
+const myDmuP4MagicBeginStorage = (data, matches) => {
+  if (data.myDmuPhase !== 'p4')
+    return false;
+  const now = Date.now();
+  const previous = myDmuP4MagicEnsureStorage(data);
+  const key = `${matches.sourceId ?? matches.source ?? '?'}:${myDmuP4MagicStorageStartId}`;
+  if (previous.lastKey === key && typeof previous.lastAt === 'number' && now - previous.lastAt < 2500)
+    return true;
+  const previousCount = previous.storeCount ?? 0;
+  data.myDmuP4.magicStorage = myDmuNewP4MagicStorage(previous, true);
+  const st = myDmuP4MagicEnsureStorage(data);
+  st.active = true;
+  st.storeCount = previousCount + 1;
+  st.lastKey = key;
+  st.lastAt = now;
+  st.expireAt = now + 70000;
+  return true;
+};
+
+const myDmuP4MagicStorageSingleLabel = (data, element) => {
+  const st = myDmuP4MagicEnsureStorage(data);
+  if (st.baseLabels[element] !== undefined)
+    return st.baseLabels[element];
+  const labels = st.labels[element] ?? [];
+  let found;
+  for (const label of labels) {
+    if (!['真雷', '假雷', '真冰', '假冰'].includes(label))
+      continue;
+    if (found !== undefined && found !== label)
+      return undefined;
+    found = label;
+  }
+  return found;
+};
+
+const myDmuP4MagicOppositeLabel = (label) => ({
+  真雷: '假雷',
+  假雷: '真雷',
+  真冰: '假冰',
+  假冰: '真冰',
+}[label] ?? label);
+
+const myDmuP4MagicEatText = (thunderLabel, iceLabel) => {
+  const eatThunder = thunderLabel === '假雷';
+  const eatIce = iceLabel === '假冰';
+  if (eatThunder && eatIce)
+    return '都吃';
+  if (eatThunder)
+    return '吃直条';
+  if (eatIce)
+    return '吃扇形';
+  return '都不吃';
+};
+
+const myDmuP4MagicTrySendRelease = (data, source) => {
+  if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
+    return false;
+  const st = myDmuP4MagicEnsureStorage(data);
+  const rel = st.release ?? {};
+  if (rel.sent === true || rel.channelSeen !== true)
+    return false;
+  const thunderBase = myDmuP4MagicStorageSingleLabel(data, 'thunder');
+  const iceBase = myDmuP4MagicStorageSingleLabel(data, 'ice');
+  const thunderMod = rel.mods?.thunder;
+  const iceMod = rel.mods?.ice;
+  if (thunderBase === undefined || iceBase === undefined || thunderMod === undefined || iceMod === undefined)
+    return false;
+
+  const thunderFinal = thunderMod.invert ? myDmuP4MagicOppositeLabel(thunderBase) : thunderBase;
+  const iceFinal = iceMod.invert ? myDmuP4MagicOppositeLabel(iceBase) : iceBase;
+  const message = `魔法放出：${thunderFinal} ${iceFinal}/${myDmuP4MagicEatText(thunderFinal, iceFinal)}`;
+  rel.sent = true;
+  rel.message = message;
+  return myDmuSendP4BuffChat(data, `p4-magic-release:${st.storeCount}:${source ?? ''}`, message);
+};
+
+const myDmuP4MagicRecordStorageSpell = (data, matches) => {
+  if (data.myDmuPhase !== 'p4')
+    return false;
+  const id = matches.id?.toUpperCase();
+  const info = id === undefined ? undefined : myDmuP4MagicStorageLabels[id];
+  if (info === undefined)
+    return false;
+  const st = myDmuP4MagicEnsureStorage(data);
+  const now = Date.now();
+  if (st.active !== true || now > (st.expireAt ?? 0))
+    return false;
+  const key = `${info.element}:${info.label}:${matches.sourceId ?? matches.source ?? '?'}`;
+  if (st.seen[key])
+    return true;
+  st.seen[key] = true;
+  const labels = st.labels[info.element];
+  if (!labels.includes(info.label))
+    labels.push(info.label);
+  if (labels.length === 1)
+    st.baseLabels[info.element] = info.label;
+  return true;
+};
+
+const myDmuP4MagicRecordReleaseMarker = (data, matches, source) => {
+  if (data.myDmuPhase !== 'p4')
+    return false;
+  const markerId = myDmuNormalizeHeadmarkerId(matches.id);
+  const info = myDmuP4MagicReleaseHeadmarkers[markerId];
+  if (info === undefined)
+    return false;
+  const now = Date.now();
+  const st = myDmuP4MagicEnsureStorage(data);
+  let rel = st.release;
+  const lastMarkerAt = rel.lastMarkerAt;
+  if (rel.sent === true || (typeof lastMarkerAt === 'number' && now - lastMarkerAt > 3000)) {
+    const keepChannel = rel.channelSeen === true && typeof rel.channelAt === 'number' && now - rel.channelAt < 2500;
+    rel = myDmuP4MagicResetRelease(data, keepChannel);
+  }
+  rel.lastMarkerAt = now;
+  const key = `${matches.targetId ?? matches.target ?? '?'}:${markerId}`;
+  if (rel.seen[key])
+    return true;
+  rel.seen[key] = true;
+  rel.mods[info.element] = {
+    marker: markerId,
+    invert: info.invert,
+    label: info.label,
+    targetId: matches.targetId,
+    at: now,
+  };
+  rel.markers.push(markerId);
+  return myDmuP4MagicTrySendRelease(data, source);
+};
+
+const myDmuP4MagicReleaseChannel = (data, matches, source) => {
+  if (data.myDmuPhase !== 'p4')
+    return false;
+  const st = myDmuP4MagicEnsureStorage(data);
+  let rel = st.release;
+  const now = Date.now();
+  const lastMarkerAt = rel.lastMarkerAt;
+  if (rel.sent === true || (typeof lastMarkerAt === 'number' && now - lastMarkerAt > 3000))
+    rel = myDmuP4MagicResetRelease(data, false);
+  rel.channelSeen = true;
+  rel.channelAt = now;
+  rel.entityID = matches.sourceId;
+  return myDmuP4MagicTrySendRelease(data, source);
+};
+
 const myDmuP4PetrifyKind = (round) => `petrify-${round}`;
 
 const myDmuP4RoundRecords = (data, buffIds, round) => {
@@ -1809,6 +2052,8 @@ const myDmuApplyP4ElementRound = (data, round) => {
     return false;
 
   const records = myDmuP4RoundRecords(data, myDmuP4ElementBuffs, round);
+  if (!myDmuP4RoundRecordsReady(records, 4) || !myDmuP4RecordsStillActive(records))
+    return false;
   const targets = myDmuP4ElementSpreadTargets(data, round);
   if (targets.TN === undefined || targets.DPS === undefined)
     return false;
@@ -1839,6 +2084,8 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
     return false;
 
   const records = myDmuP4RoundRecords(data, [myDmuP4PetrifyBuff], round);
+  if (!myDmuP4RoundRecordsReady(records, 2) || !myDmuP4RecordsStillActive(records))
+    return false;
   const realRecords = records
     .filter((rec) => rec.truth === true)
     .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
@@ -2656,6 +2903,7 @@ Options.Triggers.push({
       id: '绝妖星 P4 真假状态列表',
       type: 'StatusEffect',
       netRegex: { data3: Object.keys(myDmuP4TruthStatuses), capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
       preRun: (data, matches) => {
         const truth = myDmuP4TruthFromStatus(matches);
         if (truth === undefined)
@@ -2669,13 +2917,44 @@ Options.Triggers.push({
       id: '绝妖星 P4 真假头标',
       type: 'HeadMarker',
       netRegex: { id: Object.keys(myDmuP4TruthHeadmarkers), capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
       preRun: (data, matches) => {
         const truth = myDmuP4TruthHeadmarkers[myDmuNormalizeHeadmarkerId(matches.id)];
         if (truth === undefined)
           return;
         myDmuP4RecordTruth(data, truth.target, truth.value);
+        myDmuP4MagicRecordReleaseMarker(data, matches, 'truth-headmarker');
         myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
         myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-headmarker'), 12, 250);
+      },
+    },
+    {
+      id: '绝妖星 P4 魔法储存放出读条',
+      type: 'StartsUsing',
+      netRegex: {
+        id: [myDmuP4MagicStorageStartId, myDmuP4MagicReleaseId, ...Object.keys(myDmuP4MagicStorageLabels)],
+        capture: true,
+      },
+      condition: (data) => data.myDmuPhase === 'p4',
+      run: (data, matches) => {
+        const id = matches.id.toUpperCase();
+        if (id === myDmuP4MagicStorageStartId)
+          return myDmuP4MagicBeginStorage(data, matches);
+        if (id === myDmuP4MagicReleaseId)
+          return myDmuP4MagicReleaseChannel(data, matches, 'starts-using');
+        return myDmuP4MagicRecordStorageSpell(data, matches);
+      },
+    },
+    {
+      id: '绝妖星 P4 魔法放出结算兜底',
+      type: 'Ability',
+      netRegex: { id: [myDmuP4MagicReleaseId, ...Object.keys(myDmuP4MagicStorageLabels)], capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
+      run: (data, matches) => {
+        const id = matches.id.toUpperCase();
+        if (id === myDmuP4MagicReleaseId)
+          return myDmuP4MagicReleaseChannel(data, matches, 'ability');
+        return myDmuP4MagicRecordStorageSpell(data, matches);
       },
     },
     {
