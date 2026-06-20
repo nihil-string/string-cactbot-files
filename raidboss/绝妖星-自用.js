@@ -317,10 +317,12 @@ const myDmuBooleanConfig = (data, key, fallback = true) => {
   return value === 'true' || value === '开' || value === '本地';
 };
 
-const myDmuMarkLocalOnly = (data) => myDmuBooleanConfig(data, 'MyDMU_LocalMarkV4', false);
+const myDmuMarkLocalOnly = (data) => myDmuBooleanConfig(data, 'MyDMU_LocalMarkV3', false);
+
+const myDmuSessionAutoMarkEnabled = (data) => myDmuFl(data)?.isAutoMarkArmed?.() === true;
 
 const myDmuMarkEnabled = (data, key) =>
-  myDmuBooleanConfig(data, 'MyDMU_AutoMarkV4', false) && myDmuBooleanConfig(data, key, false);
+  myDmuSessionAutoMarkEnabled(data) && myDmuBooleanConfig(data, key, false);
 
 const myDmuForceTtsEnabled = (data) => myDmuBooleanConfig(data, 'MyDMU_ForceTTS', true);
 
@@ -530,7 +532,7 @@ const myDmuP1PoisonEntries = (data) =>
     .sort((left, right) => myDmuRolePriority(left.role) - myDmuRolePriority(right.role));
 
 const myDmuApplyP1PoisonMarkers = (data, force = false) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P1PoisonMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P1PoisonMarkV3'))
     return false;
 
   const desired = myDmuP1PoisonEntries(data)
@@ -677,7 +679,7 @@ const myDmuClearMarkQueue = (data, items, note) => {
 
 const myDmuClearMarks = (data) => {
   data.myDmuMarkState = myDmuNewMarkState();
-  if (!myDmuBooleanConfig(data, 'MyDMU_AutoMarkV4', false))
+  if (!myDmuSessionAutoMarkEnabled(data))
     return;
   const fl = myDmuFl(data);
   if (fl?.clearMark !== undefined) {
@@ -1069,7 +1071,7 @@ const myDmuP2DesiredMarkers = (data, round) => {
 };
 
 const myDmuApplyP2Round = (data, round) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'))
     return false;
   const desired = myDmuP2DesiredMarkers(data, round);
   if (desired.length < 4)
@@ -1086,7 +1088,7 @@ const myDmuApplyP2Round = (data, round) => {
 };
 
 const myDmuScheduleP2Round8 = (data) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'))
     return;
   if (data.myDmuP2Round8Timer !== undefined)
     clearTimeout(data.myDmuP2Round8Timer);
@@ -1243,7 +1245,7 @@ const myDmuCacheP3MahjongCallout = (data) => {
 };
 
 const myDmuApplyP3MahjongMarkers = (data) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P3MahjongMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P3MahjongMarkV3'))
     return false;
   const state = data.myDmuP3Mahjong;
   if (state?.marked)
@@ -1382,7 +1384,7 @@ const myDmuP4RefreshRecordTruth = (data, rec) => {
 };
 
 const myDmuTryApplyP3TargetMarkers = (data) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P3TargetMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P3TargetMarkV3'))
     return false;
   const state = data.myDmuP3Targets;
   if (state.marked)
@@ -1561,7 +1563,7 @@ const myDmuP4ElementSpreadTargets = (data, round) => {
 };
 
 const myDmuTrySendP4LongAttack12Chat = (data) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return true;
   const targets = myDmuP4ElementSpreadTargets(data, 'long');
   if (targets.TN === undefined || targets.DPS === undefined)
@@ -1577,7 +1579,7 @@ const myDmuTrySendP4LongAttack12Chat = (data) => {
 };
 
 const myDmuTrySendP4LongPetrifyChat = (data) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return true;
   const records = myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]);
   myDmuP4ClassifyLengths(records);
@@ -2003,7 +2005,7 @@ const myDmuP4ScheduleTimer = (data, key, delayMs, callback) => {
 };
 
 const myDmuP4SetKindMarkers = (data, kind, desired, note) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
   if (desired.length === 0)
     return false;
@@ -2016,7 +2018,7 @@ const myDmuP4SetKindMarkers = (data, kind, desired, note) => {
 };
 
 const myDmuP4ClearKind = (data, kind, reason) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
   const assignments = data.myDmuP4.markAssignments?.[kind] ?? [];
   if (assignments.length > 0)
@@ -2044,7 +2046,7 @@ const myDmuP4ScheduleKindClear = (data, kind, records, minVisibleMs = 0) => {
 };
 
 const myDmuApplyP4ElementRound = (data, round) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
   if (round === undefined || data.myDmuP4.elementMarked[round])
     return true;
@@ -2074,7 +2076,7 @@ const myDmuApplyP4ElementRound = (data, round) => {
 };
 
 const myDmuApplyP4PetrifyRound = (data, round) => {
-  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
   if (round === undefined || data.myDmuP4.petrifyMarked[round])
     return false;
@@ -2111,7 +2113,7 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
 };
 
 function myDmuProcessP4MarkTiming(data, source = 'process') {
-  if (data.myDmuPhase !== 'p4' || !myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV4'))
+  if (data.myDmuPhase !== 'p4' || !myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return true;
 
   if (!data.myDmuP4.elementMarked.short && !data.myDmuP4.elementCleared.short)
@@ -2147,13 +2149,7 @@ Options.Triggers.push({
   timelineFile: '绝妖星-自用.txt',
   config: [
     {
-      id: 'MyDMU_AutoMarkV4',
-      name: { en: '自用：启用自动标点' },
-      type: 'checkbox',
-      default: false,
-    },
-    {
-      id: 'MyDMU_LocalMarkV4',
+      id: 'MyDMU_LocalMarkV3',
       name: { en: '自用：仅本地标点' },
       type: 'checkbox',
       default: false,
@@ -2165,7 +2161,7 @@ Options.Triggers.push({
       default: true,
     },
     {
-      id: 'MyDMU_P1PoisonMarkV4',
+      id: 'MyDMU_P1PoisonMarkV3',
       name: { en: '自用：P1 5078锁链标点' },
       type: 'checkbox',
       default: false,
@@ -2177,7 +2173,7 @@ Options.Triggers.push({
       default: true,
     },
     {
-      id: 'MyDMU_P2TowerMarkV4',
+      id: 'MyDMU_P2TowerMarkV3',
       name: { en: '自用：P2 八轮塔标点' },
       type: 'checkbox',
       default: false,
@@ -2219,13 +2215,13 @@ Options.Triggers.push({
       default: true,
     },
     {
-      id: 'MyDMU_P3MahjongMarkV4',
+      id: 'MyDMU_P3MahjongMarkV3',
       name: { en: '自用：P3 麻将标点' },
       type: 'checkbox',
       default: false,
     },
     {
-      id: 'MyDMU_P3TargetMarkV4',
+      id: 'MyDMU_P3TargetMarkV3',
       name: { en: '自用：P3 一二三目标标点' },
       type: 'checkbox',
       default: false,
@@ -2261,7 +2257,7 @@ Options.Triggers.push({
       default: true,
     },
     {
-      id: 'MyDMU_P4BuffMarkV4',
+      id: 'MyDMU_P4BuffMarkV3',
       name: { en: '自用：P4 Buff 标点' },
       type: 'checkbox',
       default: false,
@@ -2407,9 +2403,9 @@ Options.Triggers.push({
         data.myDmuP1PoisonTargets = data.myDmuP1PoisonTargets.filter((name) => name !== matches.target);
         delete data.myDmuP1PoisonTargetIds[matches.target];
         data.myDmuP1PoisonMarkerSignature = undefined;
-        if (data.myDmuP1PoisonTargets.length === 0 && myDmuMarkEnabled(data, 'MyDMU_P1PoisonMarkV4'))
+        if (data.myDmuP1PoisonTargets.length === 0 && myDmuMarkEnabled(data, 'MyDMU_P1PoisonMarkV3'))
           myDmuScheduleClearMarks(data, 'p1Poison', 0.2, (data) =>
-            data.myDmuP1PoisonTargets.length === 0 && myDmuMarkEnabled(data, 'MyDMU_P1PoisonMarkV4'));
+            data.myDmuP1PoisonTargets.length === 0 && myDmuMarkEnabled(data, 'MyDMU_P1PoisonMarkV3'));
       },
     },
     {
@@ -2744,9 +2740,9 @@ Options.Triggers.push({
         myDmuApplyP2Round(data, round);
         if (round === 7)
           myDmuScheduleP2Round8(data);
-        if (round >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV4'))
+        if (round >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'))
           myDmuScheduleClearMarks(data, 'p2Tower', 1.2, (data) =>
-            (data.myDmuP2AbilityRound ?? 0) >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV4'));
+            (data.myDmuP2AbilityRound ?? 0) >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'));
       },
     },
     {

@@ -49,6 +49,7 @@
 
   let stringParty = [];
   let externalPartyRp;
+  let externalAutoMarkArmed = false;
   let partyUpdateTimer;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -286,7 +287,11 @@
   const handleBroadcastMessage = (msg) => {
     if (msg.source !== 'stringRuntimeJS' && msg.source !== 'soumaRuntimeJS')
       return;
-    externalPartyRp = msg.msg?.party;
+    if (typeof msg.msg?.autoMark === 'boolean')
+      externalAutoMarkArmed = msg.msg.autoMark;
+    if (!Array.isArray(msg.msg?.party) || msg.msg.party.length === 0)
+      return;
+    externalPartyRp = msg.msg.party;
     if (externalPartyRp !== undefined)
       updatePartyRp();
   };
@@ -326,6 +331,7 @@
     placeClear,
     getClearMarkQueue,
     getLegalityMarkType,
+    isAutoMarkArmed: () => externalAutoMarkArmed,
   };
 })());
 
