@@ -79,9 +79,9 @@ hideall "绝妖星 P5 减伤 18"
 187.1 "呼啦啦爆炎" Ability { id: ["BAA2", "BAA3"] }
 # Successful P1 transition voiceline, before the P1 enrage check.
 193.1 label "p2-pre"
-193.1 "--sync--" GameLog { code: "0044", line: "你们几个不是.*原来如此" } window 240,30 forcejump "p2-pre"
+193.1 "--sync--" GameLog { code: "0044", line: "你们几个不是.*原来如此" } window 240,30
 202.4 label "p2"
-202.4 "--sync--" GameLog { code: "0044", line: "居然能把我重现出来.*" } window 80,30 forcejump "p2"
+202.4 "--sync--" GameLog { code: "0044", line: "居然能把我重现出来.*" } window 80,30
 202.5 "制裁之光（狂暴？）" Ability { id: "BABB" } # Kefka >15% HP
 ### Phase 2 - God Kefka
 # Network-log calibrated from 2026-06-09..11 ACT logs after the true P2 voiceline and C24C ability sync.
@@ -301,7 +301,7 @@ hideall "绝妖星 P5 减伤 18"
 # Source: 绝妖星乱舞时间轴-团减排轴一体机.xlsx, P4 sheet.
 # P4 label is aligned to C2DC StartsUsing. Excel P4 phase time is 10s earlier.
 900.0 label "p4"
-900.0 "闹哄哄魂击" StartsUsing { id: "C2DC" } window 360,10 forcejump "p4"
+900.0 "闹哄哄魂击" StartsUsing { id: "C2DC" } window 360,10
 905.0 "闹哄哄魂击" Ability { id: "C2DC" }
 909.6 "玄乎乎魔法 1" StartsUsing { id: "BA94" }
 909.6 "冰雷 1" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
@@ -339,7 +339,7 @@ hideall "绝妖星 P5 减伤 18"
 1003.0 "死亡尖叫 2" Ability { id: ["BB16", "BB17"] }
 1009.5 "魔法放出" Ability { id: "BAA5" }
 1020.5 label "p4-success"
-1020.5 "--sync--" Ability { id: "C3FD" } window 90,5 forcejump "p4-success"
+1020.5 "--sync--" Ability { id: "C3FD" } window 90,5
 1022.0 "扑腾腾究极 2" StartsUsing { id: "C24A" }
 1027.0 "扑腾腾究极 2" Ability { id: "C24A" }
 ### Phase 5 - Final Kefka
@@ -347,121 +347,121 @@ hideall "绝妖星 P5 减伤 18"
 # Verified through BB3A enrage cast start on the clear pull.
 # BB3A impact is cast-time projected because the clear pull interrupted it before resolution.
 # Keep repeated-id sync windows narrow because BB40/BB37/BB38 repeat in P5.
+# Do not use forcejump to the same timestamp: missed same-time forcejumps can recurse in cactbot.
 # Official cactbot also resyncs P5 with C3FD, C652, BB3C, and BB3A.
 1042.9 label "p5"
-1042.9 "--sync--" GameLog { code: "0044", line: "既然你们执意要继续创造.*" } window 180,30 forcejump "p5"
+1042.9 "--sync--" GameLog { code: "0044", line: "既然你们执意要继续创造.*" } window 180,30
 1049.9 label "p5-line2"
-1049.9 "--sync--" GameLog { code: "0044", line: "那我就继续破坏.*" } window 60,30 forcejump "p5-line2"
-1059.9 "--sync--" GameLog { code: "0044", line: "哈.*癫疯盛宴开始了.*" } window 30,10
-1061.1 "连续究极 1" StartsUsing { id: "BB40" } window 20,5
-1065.0 "连续究极 1" Ability { id: "BB40" }
+1049.9 "--sync--" GameLog { code: "0044", line: "那我就继续破坏.*" } window 60,30
+# P5 dialogue timing is second-rounded and can drift; after the two entry lines, sync by mechanics.
+1061.1 "连续究极 1" StartsUsing { id: "BB40", source: "凯夫卡" } window 20,5
+1065.0 "连续究极 1" Ability { id: "BB40", source: "凯夫卡" }
 1065.8 "绝妖星 P5 减伤 01"
-1066.2 "连续究极 2" Ability { id: "BB41" }
-1066.9 "连续究极 3" Ability { id: "BB41" }
-1067.5 "连续究极 4" Ability { id: "BB41" }
-1068.3 "连续究极 5" Ability { id: "BB41" }
-1070.2 "--sync--" Ability { id: "C652" }
-1070.2 "魔击 1" Ability { id: ["C652", "C653", "C654", "C655"] }
+1066.2 "连续究极 2" #Ability { id: "BB41" }
+1066.9 "连续究极 3" #Ability { id: "BB41" }
+1067.5 "连续究极 4" #Ability { id: "BB41" }
+1068.3 "连续究极 5" #Ability { id: "BB41" }
+1070.2 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1070.2 "魔击 1" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
 1070.8 "绝妖星 P5 减伤 02"
-1073.4 "--sync--" Ability { id: "C652" }
-1073.4 "魔击 2" Ability { id: ["C652", "C653", "C654", "C655"] }
-1076.5 "--sync--" Ability { id: "C652" }
-1076.5 "魔击 3" Ability { id: ["C652", "C653", "C654", "C655"] }
-1077.7 "洪水" StartsUsing { id: "C13F" }
-1082.6 "洪水" Ability { id: "C13F" }
-1083.7 "混沌洪水 1" Ability { id: ["BB4F", "C269"] }
+1073.4 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1073.4 "魔击 2" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
+1076.5 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1076.5 "魔击 3" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
+1077.7 "洪水" #StartsUsing { id: "C13F" }
+1082.6 "洪水" #Ability { id: "C13F" }
+1083.7 "混沌洪水 1" #Ability { id: ["BB4F", "C269"] }
 1083.8 "绝妖星 P5 减伤 03"
-1084.7 "混沌洪水 2" Ability { id: ["BB4F", "C269"] }
-1085.7 "混沌洪水 3" Ability { id: ["BB4F", "C269"] }
-1086.7 "混沌洪水 4" Ability { id: ["BB4F", "C269"] }
-1090.8 "癫狂交响曲 1" StartsUsing { id: "BB50" }
-1095.8 "癫狂交响曲 1" Ability { id: "BB50" }
-1096.7 "神圣/核爆 1" Ability { id: ["BB52", "BB54"] }
+1084.7 "混沌洪水 2" #Ability { id: ["BB4F", "C269"] }
+1085.7 "混沌洪水 3" #Ability { id: ["BB4F", "C269"] }
+1086.7 "混沌洪水 4" #Ability { id: ["BB4F", "C269"] }
+1090.8 "癫狂交响曲 1" #StartsUsing { id: "BB50" }
+1095.8 "癫狂交响曲 1" #Ability { id: "BB50" }
+1096.7 "神圣/核爆 1" #Ability { id: ["BB52", "BB54"] }
 1096.8 "绝妖星 P5 减伤 04"
-1099.0 "癫狂交响曲 1 回响" Ability { id: "BB51" }
-1099.9 "神圣/混沌核爆 1" Ability { id: ["BB53", "BB54"] }
+1099.0 "癫狂交响曲 1 回响" #Ability { id: "BB51" }
+1099.9 "神圣/混沌核爆 1" #Ability { id: ["BB53", "BB54"] }
 1099.8 "绝妖星 P5 减伤 05"
-1103.3 "混沌神圣/核爆扩散 1" Ability { id: ["BB55", "BB56"] }
-1107.1 "--sync--" Ability { id: "C652" }
-1107.1 "魔击 4" Ability { id: ["C652", "C653", "C654", "C655"] }
+1103.3 "混沌神圣/核爆扩散 1" #Ability { id: ["BB55", "BB56"] }
+1107.1 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1107.1 "魔击 4" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
 1107.8 "绝妖星 P5 减伤 06"
-1110.2 "--sync--" Ability { id: "C652" }
-1110.2 "魔击 5" Ability { id: ["C652", "C653", "C654", "C655"] }
-1112.5 "三星" StartsUsing { id: "BB42" }
-1117.4 "三星" Ability { id: "BB42" }
-1121.6 "二选一的灾祟 1" StartsUsing { id: ["C24F", "C24E"] }
-1125.9 "二选一的灾祟 1" Ability { id: ["C24F", "C24E"] }
-1126.6 "暴雷/冰封/爆炎 1" Ability { id: ["BB43", "BB44", "BB45"] }
-1126.7 "地震/龙卷 1" Ability { id: ["BB4A", "BB4B"] }
+1110.2 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1110.2 "魔击 5" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
+1112.5 "三星" #StartsUsing { id: "BB42" }
+1117.4 "三星" #Ability { id: "BB42" }
+1121.6 "二选一的灾祟 1" #StartsUsing { id: ["C24F", "C24E"] }
+1125.9 "二选一的灾祟 1" #Ability { id: ["C24F", "C24E"] }
+1126.6 "暴雷/冰封/爆炎 1" #Ability { id: ["BB43", "BB44", "BB45"] }
+1126.7 "地震/龙卷 1" #Ability { id: ["BB4A", "BB4B"] }
 1126.8 "绝妖星 P5 减伤 07"
-1132.7 "暴雷/冰封/爆炎 2" Ability { id: ["BB43", "BB44", "BB45"] }
-1133.9 "二选一的灾祟 2" StartsUsing { id: ["C24F", "C24E"] }
+1132.7 "暴雷/冰封/爆炎 2" #Ability { id: ["BB43", "BB44", "BB45"] }
+1133.9 "二选一的灾祟 2" #StartsUsing { id: ["C24F", "C24E"] }
 1134.8 "绝妖星 P5 减伤 08"
-1138.2 "二选一的灾祟 2" Ability { id: ["C24F", "C24E"] }
-1138.7 "暴雷/冰封/爆炎 3" Ability { id: ["BB43", "BB44", "BB45"] }
+1138.2 "二选一的灾祟 2" #Ability { id: ["C24F", "C24E"] }
+1138.7 "暴雷/冰封/爆炎 3" #Ability { id: ["BB43", "BB44", "BB45"] }
 1138.8 "绝妖星 P5 减伤 09"
-1139.0 "地震/龙卷 2" Ability { id: ["BB4A", "BB4B"] }
-1143.0 "连续究极 6" StartsUsing { id: "BB40" }
-1147.0 "连续究极 6" Ability { id: "BB40" }
+1139.0 "地震/龙卷 2" #Ability { id: ["BB4A", "BB4B"] }
+1143.0 "连续究极 6" StartsUsing { id: "BB40", source: "凯夫卡" }
+1147.0 "连续究极 6" Ability { id: "BB40", source: "凯夫卡" }
 1147.8 "绝妖星 P5 减伤 10"
-1148.1 "连续究极 7" Ability { id: "BB41" }
-1148.8 "连续究极 8" Ability { id: "BB41" }
-1149.5 "连续究极 9" Ability { id: "BB41" }
-1150.2 "连续究极 10" Ability { id: "BB41" }
-1152.2 "--sync--" Ability { id: "C652" }
-1152.2 "魔击 6" Ability { id: ["C652", "C653", "C654", "C655"] }
-1155.4 "--sync--" Ability { id: "C652" }
-1155.4 "魔击 7" Ability { id: ["C652", "C653", "C654", "C655"] }
-1157.6 "混沌末世" StartsUsing { id: "BB3B" }
-1157.6 "--sync--" StartsUsing { id: "BB3C" }
-1160.1 "--sync--" StartsUsing { id: "BB3C" }
-1161.4 "混沌末世 1" Ability { id: "BB3B" }
-1162.1 "混沌末世扩散" Ability { id: "BB3D" }
-1162.6 "--sync--" StartsUsing { id: "BB3C" }
-1165.1 "--sync--" StartsUsing { id: "BB3C" }
-1167.6 "--sync--" StartsUsing { id: "BB3C" }
-1170.1 "--sync--" StartsUsing { id: "BB3C" }
-1173.6 "混沌涡旋" StartsUsing { id: "BB3E" }
-1178.6 "混沌涡旋" Ability { id: "BB3E" }
-1179.5 "混沌涡旋扩散" Ability { id: "BB3F" }
+1148.1 "连续究极 7" #Ability { id: "BB41" }
+1148.8 "连续究极 8" #Ability { id: "BB41" }
+1149.5 "连续究极 9" #Ability { id: "BB41" }
+1150.2 "连续究极 10" #Ability { id: "BB41" }
+1152.2 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1152.2 "魔击 6" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
+1155.4 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1155.4 "魔击 7" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
+1157.6 "混沌末世" #StartsUsing { id: "BB3B", source: "凯夫卡" }
+1157.6 "--sync--" StartsUsing { id: "BB3C", source: "凯夫卡" } window 0.8,0.8
+1160.1 "--sync--" StartsUsing { id: "BB3C", source: "凯夫卡" } window 0.8,0.8
+1161.4 "混沌末世 1" #Ability { id: "BB3B", source: "凯夫卡" }
+1162.1 "混沌末世扩散" #Ability { id: "BB3D", source: "凯夫卡" }
+1162.6 "--sync--" StartsUsing { id: "BB3C", source: "凯夫卡" } window 0.8,0.8
+1165.1 "--sync--" StartsUsing { id: "BB3C", source: "凯夫卡" } window 0.8,0.8
+1167.6 "--sync--" StartsUsing { id: "BB3C", source: "凯夫卡" } window 0.8,0.8
+1170.1 "--sync--" StartsUsing { id: "BB3C", source: "凯夫卡" } window 0.8,0.8
+1173.6 "混沌涡旋" #StartsUsing { id: "BB3E", source: "凯夫卡" }
+1178.6 "混沌涡旋" #Ability { id: "BB3E", source: "凯夫卡" }
+1179.5 "混沌涡旋扩散" #Ability { id: "BB3F", source: "凯夫卡" }
 1179.8 "绝妖星 P5 减伤 11"
-1182.8 "癫狂交响曲 2" StartsUsing { id: "BB50" }
-1187.8 "癫狂交响曲 2" Ability { id: "BB50" }
-1188.7 "神圣/核爆 2" Ability { id: ["BB52", "BB54"] }
+1182.8 "癫狂交响曲 2" #StartsUsing { id: "BB50" }
+1187.8 "癫狂交响曲 2" #Ability { id: "BB50" }
+1188.7 "神圣/核爆 2" #Ability { id: ["BB52", "BB54"] }
 1188.8 "绝妖星 P5 减伤 12"
-1190.9 "癫狂交响曲 2 回响" Ability { id: "BB51" }
-1191.8 "神圣/混沌核爆 2" Ability { id: ["BB53", "BB54"] }
-1195.2 "混沌神圣/核爆扩散 2" Ability { id: ["BB55", "BB56"] }
-1199.1 "--sync--" Ability { id: "C652" }
-1199.1 "魔击 8" Ability { id: ["C652", "C653", "C654", "C655"] }
+1190.9 "癫狂交响曲 2 回响" #Ability { id: "BB51" }
+1191.8 "神圣/混沌核爆 2" #Ability { id: ["BB53", "BB54"] }
+1195.2 "混沌神圣/核爆扩散 2" #Ability { id: ["BB55", "BB56"] }
+1199.1 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1199.1 "魔击 8" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
 1199.8 "绝妖星 P5 减伤 13"
-1202.2 "--sync--" Ability { id: "C652" }
-1202.2 "魔击 9" Ability { id: ["C652", "C653", "C654", "C655"] }
-1205.4 "--sync--" Ability { id: "C652" }
-1205.4 "魔击 10" Ability { id: ["C652", "C653", "C654", "C655"] }
-1206.9 "--sync--" GameLog { code: "0044", line: "没意思.*没意思.*没意思.*" } window 30,10
+1202.2 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1202.2 "魔击 9" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
+1205.4 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
+1205.4 "魔击 10" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
 1207.6 label "p5-forsaken"
-1207.6 "遗弃末世" StartsUsing { id: "BB35" } window 60,10 forcejump "p5-forsaken"
-1217.5 "遗弃末世 1" Ability { id: "BB35" }
-1217.6 "遗弃末世地面 1" StartsUsing { id: ["BB37", "BB38"] }
+1207.6 "遗弃末世" StartsUsing { id: "BB35", source: "凯夫卡" } window 60,10
+1217.5 "遗弃末世 1" #Ability { id: "BB35", source: "凯夫卡" }
+1217.6 "遗弃末世地面 1" #StartsUsing { id: ["BB37", "BB38"], source: "凯夫卡" }
 1217.8 "绝妖星 P5 减伤 14"
-1222.8 "遗弃末世地面 1" Ability { id: ["BB37", "BB38", "BB39"] }
+1222.8 "遗弃末世地面 1" #Ability { id: ["BB37", "BB38", "BB39"] }
 1222.8 "绝妖星 P5 减伤 15"
-1225.8 "遗弃末世 2" Ability { id: "BB36" }
-1225.9 "遗弃末世地面 2" StartsUsing { id: ["BB37", "BB38"] }
+1225.8 "遗弃末世 2" #Ability { id: "BB36" }
+1225.9 "遗弃末世地面 2" #StartsUsing { id: ["BB37", "BB38"] }
 1226.8 "绝妖星 P5 减伤 16"
-1231.0 "遗弃末世地面 2" Ability { id: ["BB37", "BB38", "BB39"] }
+1231.0 "遗弃末世地面 2" #Ability { id: ["BB37", "BB38", "BB39"] }
 1231.8 "绝妖星 P5 减伤 17"
-1234.1 "遗弃末世 3" Ability { id: "BB36" }
-1234.2 "遗弃末世地面 3" StartsUsing { id: ["BB37", "BB38"] }
+1234.1 "遗弃末世 3" #Ability { id: "BB36" }
+1234.2 "遗弃末世地面 3" #StartsUsing { id: ["BB37", "BB38"] }
 1234.8 "绝妖星 P5 减伤 18"
-1239.2 "遗弃末世地面 3" Ability { id: ["BB37", "BB38", "BB39"] }
-1242.3 "遗弃末世 4" Ability { id: "BB36" }
-1242.4 "遗弃末世地面 4" StartsUsing { id: ["BB37", "BB38"] }
-1247.3 "遗弃末世地面 4" Ability { id: ["BB37", "BB38", "BB39"] }
+1239.2 "遗弃末世地面 3" #Ability { id: ["BB37", "BB38", "BB39"] }
+1242.3 "遗弃末世 4" #Ability { id: "BB36" }
+1242.4 "遗弃末世地面 4" #StartsUsing { id: ["BB37", "BB38"] }
+1247.3 "遗弃末世地面 4" #Ability { id: ["BB37", "BB38", "BB39"] }
 1252.4 label "p5-enrage"
-1252.4 "遗弃末点（狂暴）" StartsUsing { id: "BB3A" } window 60,10 forcejump "p5-enrage"
-1278.1 "遗弃末点（狂暴）" Ability { id: "BB3A" } # cast-time projection; clear log interrupted before resolution
+1252.4 "遗弃末点（狂暴）" StartsUsing { id: "BB3A", source: "凯夫卡" } window 60,10
+1278.1 "遗弃末点（狂暴）" #Ability { id: "BB3A", source: "凯夫卡" } # cast-time projection; clear log interrupted before resolution
 # Phase 2 Enrage Sequence
 10376.2 label "p2-enrage"
 10381.2 "制裁之光（狂暴）" Ability { id: "BAE1" } # Kefka > 0% HP
