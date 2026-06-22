@@ -799,6 +799,8 @@ const myDmuResetP4 = (data) => {
     petrifyMarked: {},
     petrifyCleared: {},
     markAssignments: {},
+    markActorKinds: {},
+    markActorMarkers: {},
     markAppliedAt: {},
     markTimers: {},
     magicStorage: myDmuNewP4MagicStorage(),
@@ -865,6 +867,8 @@ const myDmuInitState = () => ({
     petrifyMarked: {},
     petrifyCleared: {},
     markAssignments: {},
+    markActorKinds: {},
+    markActorMarkers: {},
     markAppliedAt: {},
     markTimers: {},
     flutteringUltimateCount: 0,
@@ -2012,15 +2016,58 @@ const myDmuP4ScheduleTimer = (data, key, delayMs, callback) => {
   }, Math.max(delayMs, 0));
 };
 
+const myDmuP4IsPetrifyKind = (kind) => typeof kind === 'string' && (kind === 'petrify' || kind.startsWith('petrify-'));
+
+const myDmuP4EnsureMarkOwnership = (data) => {
+  data.myDmuP4.markAssignments ??= {};
+  data.myDmuP4.markActorKinds ??= {};
+  data.myDmuP4.markActorMarkers ??= {};
+};
+
+const myDmuP4DropKindAssignmentForActor = (data, kind, actorKey) => {
+  const assignments = data.myDmuP4.markAssignments?.[kind];
+  if (!Array.isArray(assignments))
+    return;
+  data.myDmuP4.markAssignments[kind] = assignments.filter((item) => myDmuMarkActorKey(item.id) !== actorKey);
+};
+
+const myDmuP4PickKindMarkers = (data, kind, desired) => {
+  myDmuP4EnsureMarkOwnership(data);
+  const markers = [];
+  const skipped = [];
+  for (const item of desired) {
+    if (item?.id === undefined || item?.marker === undefined)
+      continue;
+    const actorKey = myDmuMarkActorKey(item.id);
+    const oldKind = data.myDmuP4.markActorKinds[actorKey];
+    if (oldKind !== undefined && oldKind !== kind && !myDmuP4IsPetrifyKind(kind)) {
+      skipped.push(item);
+      continue;
+    }
+    if (oldKind !== undefined && oldKind !== kind)
+      myDmuP4DropKindAssignmentForActor(data, oldKind, actorKey);
+    markers.push(item);
+  }
+  return { markers, skipped };
+};
+
 const myDmuP4SetKindMarkers = (data, kind, desired, note) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
   if (desired.length === 0)
     return false;
-  myDmuMarkQueue(data, desired, note);
-  data.myDmuP4.markAssignments ??= {};
+  const { markers, skipped } = myDmuP4PickKindMarkers(data, kind, desired);
+  if (markers.length === 0 && skipped.length === 0)
+    return false;
+  if (markers.length > 0)
+    myDmuMarkQueue(data, markers, note);
   data.myDmuP4.markAppliedAt ??= {};
-  data.myDmuP4.markAssignments[kind] = desired.map((item) => ({ ...item }));
+  data.myDmuP4.markAssignments[kind] = markers.map((item) => ({ ...item }));
+  for (const item of markers) {
+    const actorKey = myDmuMarkActorKey(item.id);
+    data.myDmuP4.markActorKinds[actorKey] = kind;
+    data.myDmuP4.markActorMarkers[actorKey] = item.marker;
+  }
   data.myDmuP4.markAppliedAt[kind] = Date.now();
   return true;
 };
@@ -2028,9 +2075,20 @@ const myDmuP4SetKindMarkers = (data, kind, desired, note) => {
 const myDmuP4ClearKind = (data, kind, reason) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
+  myDmuP4EnsureMarkOwnership(data);
   const assignments = data.myDmuP4.markAssignments?.[kind] ?? [];
-  if (assignments.length > 0)
-    myDmuClearMarkQueue(data, assignments, `绝妖星 P4 清除 ${kind} ${reason ?? ''}`);
+  const owned = assignments.filter((item) => {
+    const actorKey = myDmuMarkActorKey(item.id);
+    return data.myDmuP4.markActorKinds[actorKey] === kind &&
+      data.myDmuP4.markActorMarkers[actorKey] === item.marker;
+  });
+  if (owned.length > 0)
+    myDmuClearMarkQueue(data, owned, `绝妖星 P4 清除 ${kind} ${reason ?? ''}`);
+  for (const item of owned) {
+    const actorKey = myDmuMarkActorKey(item.id);
+    delete data.myDmuP4.markActorKinds[actorKey];
+    delete data.myDmuP4.markActorMarkers[actorKey];
+  }
   delete data.myDmuP4.markAssignments?.[kind];
   if (kind === 'short' || kind === 'long')
     data.myDmuP4.elementCleared[kind] = true;
