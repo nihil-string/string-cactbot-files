@@ -319,8 +319,10 @@ const myDmuBooleanConfig = (data, key, fallback = true) => {
 
 const myDmuMarkLocalOnly = (data) => myDmuBooleanConfig(data, 'MyDMU_LocalMarkV3', false);
 
+const myDmuAutoMarkEnabled = (data) => myDmuBooleanConfig(data, 'MyDMU_AutoMarkV5', false);
+
 const myDmuMarkEnabled = (data, key) =>
-  myDmuBooleanConfig(data, key, false);
+  myDmuAutoMarkEnabled(data) && myDmuBooleanConfig(data, key, false);
 
 const myDmuAnyMarkEnabled = (data) => [
   'MyDMU_P1PoisonMarkV3',
@@ -2154,6 +2156,12 @@ Options.Triggers.push({
   overrideTimelineFile: true,
   timelineFile: '绝妖星-自用.txt',
   config: [
+    {
+      id: 'MyDMU_AutoMarkV5',
+      name: { en: '自用：启用自动标点' },
+      type: 'checkbox',
+      default: false,
+    },
     {
       id: 'MyDMU_LocalMarkV3',
       name: { en: '自用：仅本地标点' },
