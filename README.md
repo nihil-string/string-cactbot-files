@@ -34,3 +34,11 @@ https://github.com/nihil-string/string-cactbot-files/raw/main/StringDownloader.z
 ```text
 D:\ACT\NewMoe-Technology\ACT.DieMoe\Plugins\ACT.OverlayPlugin\cactbot\user\raidboss
 ```
+
+## 自动标点
+
+自动标点只看 cactbot 里对应机制的标点开关，默认关闭。需要职能优先级的机制仍要打开 String 职能悬浮窗确认 `MT/ST/H1/H2/D1-D4` 分配：
+
+```text
+https://nihil-string.github.io/string-runtime-overlay/
+```

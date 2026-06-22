@@ -319,10 +319,16 @@ const myDmuBooleanConfig = (data, key, fallback = true) => {
 
 const myDmuMarkLocalOnly = (data) => myDmuBooleanConfig(data, 'MyDMU_LocalMarkV3', false);
 
-const myDmuSessionAutoMarkEnabled = (data) => myDmuFl(data)?.isAutoMarkArmed?.() === true;
-
 const myDmuMarkEnabled = (data, key) =>
-  myDmuSessionAutoMarkEnabled(data) && myDmuBooleanConfig(data, key, false);
+  myDmuBooleanConfig(data, key, false);
+
+const myDmuAnyMarkEnabled = (data) => [
+  'MyDMU_P1PoisonMarkV3',
+  'MyDMU_P2TowerMarkV3',
+  'MyDMU_P3MahjongMarkV3',
+  'MyDMU_P3TargetMarkV3',
+  'MyDMU_P4BuffMarkV3',
+].some((key) => myDmuMarkEnabled(data, key));
 
 const myDmuForceTtsEnabled = (data) => myDmuBooleanConfig(data, 'MyDMU_ForceTTS', true);
 
@@ -679,7 +685,7 @@ const myDmuClearMarkQueue = (data, items, note) => {
 
 const myDmuClearMarks = (data) => {
   data.myDmuMarkState = myDmuNewMarkState();
-  if (!myDmuSessionAutoMarkEnabled(data))
+  if (!myDmuAnyMarkEnabled(data))
     return;
   const fl = myDmuFl(data);
   if (fl?.clearMark !== undefined) {
