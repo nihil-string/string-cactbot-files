@@ -90,6 +90,18 @@ const myDmuP2Headmarkers = {
   '02CC': 'spread',
   '02CD': 'cone',
 };
+const myDmuP2StackLeftRightRounds = new Set([3, 5, 7]);
+const myDmuP2TowerMapEffectFlags = '00020001';
+const myDmuP2TowerPoints = {
+  '01': { index: 1, label: '1', x: 100, z: 92 },
+  '02': { index: 2, label: '2', x: 105.657, z: 94.343 },
+  '03': { index: 3, label: '3', x: 108, z: 100 },
+  '04': { index: 4, label: '4', x: 105.657, z: 105.657 },
+  '05': { index: 5, label: '5', x: 100, z: 108 },
+  '06': { index: 6, label: '6', x: 94.343, z: 105.657 },
+  '07': { index: 7, label: '7', x: 92, z: 100 },
+  '08': { index: 8, label: '8', x: 94.343, z: 94.343 },
+};
 const myDmuP2ProgressBuff = '13DB';
 const myDmuP2MechanicText = {
   stack: '分摊',
@@ -759,6 +771,13 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2Round8Timer = undefined;
   data.myDmuP2BuffCounts = {};
   data.myDmuP2FuturePastCount = 0;
+  data.myDmuP2CombatantPositions = {};
+  data.myDmuP2TowerRoundCount = 0;
+  data.myDmuP2TowerCurrentRound = undefined;
+  data.myDmuP2TowerLastAt = undefined;
+  data.myDmuP2TowerRounds = {};
+  data.myDmuP2TowerFallbackLogs = {};
+  data.myDmuP2TowerDecisionLogs = {};
 };
 
 const myDmuResetP3Mahjong = (data) => {
@@ -840,6 +859,13 @@ const myDmuInitState = () => ({
   myDmuP2Round8Timer: undefined,
   myDmuP2BuffCounts: {},
   myDmuP2FuturePastCount: 0,
+  myDmuP2CombatantPositions: {},
+  myDmuP2TowerRoundCount: 0,
+  myDmuP2TowerCurrentRound: undefined,
+  myDmuP2TowerLastAt: undefined,
+  myDmuP2TowerRounds: {},
+  myDmuP2TowerFallbackLogs: {},
+  myDmuP2TowerDecisionLogs: {},
   myDmuP3Mahjong: {
     markers: {},
     lines: [],
@@ -877,14 +903,122 @@ const myDmuInitState = () => ({
 
 const myDmuP2EntryFromHeadmarker = (data, matches, mechanic) => {
   const role = myDmuGetRpByName(data, matches.target);
+  const pos = myDmuP2CombatantPosition(data, matches.targetId);
   return {
     id: matches.targetId,
     name: matches.target,
     role: role,
     group: myDmuRoleGroup(role),
     mechanic: mechanic,
+    x: pos?.x,
+    z: pos?.z,
     seenAt: Date.now(),
   };
+};
+
+const myDmuP2ActorKey = (actorId) => typeof actorId === 'string' ? actorId.toUpperCase() : `${actorId}`;
+
+const myDmuP2CombatantPoint = (combatant) => {
+  const x = Number(combatant?.PosX);
+  const z = Number(combatant?.PosY ?? combatant?.PosZ);
+  if (!Number.isFinite(x) || !Number.isFinite(z))
+    return undefined;
+  return { x, z };
+};
+
+const myDmuP2RememberCombatantPosition = async (data, targetId) => {
+  if (targetId === undefined || typeof callOverlayHandler !== 'function')
+    return;
+
+  const id = Number.parseInt(targetId, 16);
+  if (!Number.isFinite(id))
+    return;
+
+  try {
+    const result = await callOverlayHandler({ call: 'getCombatants', ids: [id] });
+    const pos = myDmuP2CombatantPoint(result?.combatants?.[0]);
+    if (pos === undefined)
+      return;
+    data.myDmuP2CombatantPositions ??= {};
+    data.myDmuP2CombatantPositions[myDmuP2ActorKey(targetId)] = pos;
+  } catch (err) {
+    console.log(`[String][P2TowerLR] fallback reason=getCombatants-failed target=${targetId} error=${err}`);
+  }
+};
+
+const myDmuP2CombatantPosition = (data, targetId) => {
+  if (targetId === undefined)
+    return undefined;
+  return data.myDmuP2CombatantPositions?.[myDmuP2ActorKey(targetId)];
+};
+
+const myDmuP2TowerLocationKey = (location) => {
+  const value = Number.parseInt(location, 16);
+  if (!Number.isInteger(value) || value < 1 || value > 8)
+    return undefined;
+  return value.toString(16).toUpperCase().padStart(2, '0');
+};
+
+const myDmuP2LogFallback = (data, round, reason) => {
+  data.myDmuP2TowerFallbackLogs ??= {};
+  const key = `${round}:${reason}`;
+  if (data.myDmuP2TowerFallbackLogs[key] === true)
+    return;
+  data.myDmuP2TowerFallbackLogs[key] = true;
+  console.log(`[String][P2TowerLR] fallback round=${round} reason=${reason}`);
+};
+
+const myDmuP2LogDecision = (data, round, mode) => {
+  data.myDmuP2TowerDecisionLogs ??= {};
+  const key = `${round}:${mode}`;
+  if (data.myDmuP2TowerDecisionLogs[key] === true)
+    return;
+  data.myDmuP2TowerDecisionLogs[key] = true;
+  console.log(`[String][P2TowerLR] round=${round} mode=${mode} towers=${myDmuP2TowerPointSummary(data, round)}`);
+};
+
+const myDmuP2RoundReadyForMapRetry = (data, round) => {
+  if (round === 1)
+    return data.myDmuP2InitialLocked === true;
+  return Object.keys(data.myDmuP2RoundSeen?.[round] ?? {}).length >= 4;
+};
+
+const myDmuP2RecordTowerMapEffect = (data, matches) => {
+  if (matches.flags !== myDmuP2TowerMapEffectFlags)
+    return false;
+
+  const location = myDmuP2TowerLocationKey(matches.location);
+  const base = location === undefined ? undefined : myDmuP2TowerPoints[location];
+  if (base === undefined)
+    return false;
+
+  const now = Date.now();
+  data.myDmuP2TowerRounds ??= {};
+  let round = data.myDmuP2TowerCurrentRound;
+  let current = round === undefined ? undefined : data.myDmuP2TowerRounds[round];
+  if (
+    current === undefined ||
+    (data.myDmuP2TowerLastAt !== undefined && now - data.myDmuP2TowerLastAt > 1500) ||
+    (current.points?.length ?? 0) >= 2
+  ) {
+    round = (data.myDmuP2TowerRoundCount ?? 0) + 1;
+    data.myDmuP2TowerRoundCount = round;
+    data.myDmuP2TowerCurrentRound = round;
+    current = { round, startedAt: now, byLocation: {}, points: [] };
+    data.myDmuP2TowerRounds[round] = current;
+  }
+  data.myDmuP2TowerLastAt = now;
+
+  if (current.byLocation[location] !== undefined)
+    return true;
+
+  current.byLocation[location] = { ...base, location };
+  current.points.push(current.byLocation[location]);
+  current.points.sort((left, right) => left.index - right.index);
+
+  if (current.points.length >= 2 && myDmuP2RoundReadyForMapRetry(data, round))
+    myDmuApplyP2Round(data, round);
+  return true;
 };
 
 const myDmuP2TowerScheme = (data) =>
@@ -1052,12 +1186,120 @@ const myDmuP2LegacyDesiredMarkers = (entries) => {
   return desired;
 };
 
+const myDmuP2TowerAxis = (data, round) => {
+  const points = data.myDmuP2TowerRounds?.[round]?.points;
+  if (points === undefined || points.length < 2)
+    return undefined;
+
+  const [first, second] = points;
+  if (
+    !Number.isFinite(first?.x) ||
+    !Number.isFinite(first?.z) ||
+    !Number.isFinite(second?.x) ||
+    !Number.isFinite(second?.z)
+  )
+    return undefined;
+
+  const x = (first.x + second.x) / 2;
+  const z = (first.z + second.z) / 2;
+  const axisX = 100 - x;
+  const axisZ = 100 - z;
+  if (axisX * axisX + axisZ * axisZ < 0.0001)
+    return undefined;
+  return { x, z, axisX, axisZ };
+};
+
+const myDmuP2TowerSide = (entry, axis) => {
+  const x = Number(entry?.x);
+  const z = Number(entry?.z);
+  if (!Number.isFinite(x) || !Number.isFinite(z))
+    return undefined;
+  return axis.axisX * (z - axis.z) - axis.axisZ * (x - axis.x);
+};
+
+const myDmuP2TowerPointSummary = (data, round) =>
+  (data.myDmuP2TowerRounds?.[round]?.points ?? [])
+    .map((point) => `${point.label}(${point.x.toFixed(3)},${point.z.toFixed(3)})`)
+    .join('/');
+
+const myDmuP2SortTowerPairByLeft = (data, round, entries, label) => {
+  const axis = myDmuP2TowerAxis(data, round);
+  if (axis === undefined) {
+    myDmuP2LogFallback(data, round, `no-tower-${label}`);
+    return undefined;
+  }
+
+  const sortable = [];
+  for (const entry of entries) {
+    const side = myDmuP2TowerSide(entry, axis);
+    if (side === undefined) {
+      myDmuP2LogFallback(data, round, `no-pos-${label}-${entry.role ?? entry.name ?? entry.id}`);
+      return undefined;
+    }
+    sortable.push({ entry, side });
+  }
+  if (sortable.length !== 2)
+    return undefined;
+
+  sortable.sort((left, right) => {
+    if (Math.abs(left.side - right.side) > 0.01)
+      return left.side - right.side;
+    return myDmuRolePriority(left.entry.role, myDmuP2Pair2222IdleOrder) -
+      myDmuRolePriority(right.entry.role, myDmuP2Pair2222IdleOrder);
+  });
+  return sortable.map((item) => item.entry);
+};
+
+const myDmuP2EvenConeSpreadDesired = (data, round, entries) => {
+  if (round % 2 !== 0)
+    return undefined;
+
+  const cones = entries.filter((entry) => entry.mechanic === 'cone');
+  const spreads = entries.filter((entry) => entry.mechanic === 'spread');
+  const stacks = entries.filter((entry) => entry.mechanic === 'stack');
+  if (cones.length !== 2 || spreads.length !== 2 || stacks.length !== 0)
+    return undefined;
+
+  const sortedCones = myDmuP2SortTowerPairByLeft(data, round, cones, 'cone');
+  const sortedSpreads = myDmuP2SortTowerPairByLeft(data, round, spreads, 'spread');
+  if (sortedCones === undefined || sortedSpreads === undefined)
+    return undefined;
+
+  myDmuP2LogDecision(data, round, 'even-cone-spread');
+  return [
+    { id: sortedSpreads[0].id, marker: 'attack1' },
+    { id: sortedSpreads[1].id, marker: 'attack2' },
+    { id: sortedCones[0].id, marker: 'bind1' },
+    { id: sortedCones[1].id, marker: 'bind2' },
+  ];
+};
+
+const myDmuP2OddStackDesired = (data, round, entries) => {
+  if (!myDmuP2StackLeftRightRounds.has(round))
+    return undefined;
+
+  const stacks = entries.filter((entry) => entry.mechanic === 'stack');
+  if (stacks.length !== 2)
+    return undefined;
+
+  const sortedStacks = myDmuP2SortTowerPairByLeft(data, round, stacks, 'stack');
+  if (sortedStacks === undefined)
+    return undefined;
+
+  myDmuP2LogDecision(data, round, 'odd-stack');
+  return [
+    { id: sortedStacks[0].id, marker: 'stop1' },
+    { id: sortedStacks[1].id, marker: 'stop2' },
+  ];
+};
+
 const myDmuP2DesiredMarkers = (data, round) => {
   const entries = myDmuP2RoundEntries(data, round);
   if (entries.length !== 4)
     return [];
 
   let desired = myDmuP2LegacyDesiredMarkers(entries);
+  desired = myDmuP2EvenConeSpreadDesired(data, round, entries) ?? desired;
   if (round % 2 === 1) {
     desired = [];
     const cones = entries
@@ -1070,11 +1312,16 @@ const myDmuP2DesiredMarkers = (data, round) => {
       desired.push({ id: entry.id, marker: ['triangle', 'bind1', 'bind2', 'bind3'][index] ?? 'bind3' }));
     spreads.forEach((entry, index) =>
       desired.push({ id: entry.id, marker: ['circle', 'attack1', 'attack2', 'attack3'][index] ?? 'attack3' }));
-    const usedStops = new Set();
-    entries
-      .filter((entry) => entry.mechanic === 'stack')
-      .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role))
-      .forEach((entry) => desired.push({ id: entry.id, marker: myDmuP2StopMarkerForStack(entry, entries, usedStops) }));
+    const stackDesired = myDmuP2OddStackDesired(data, round, entries);
+    if (stackDesired !== undefined) {
+      desired.push(...stackDesired);
+    } else {
+      const usedStops = new Set();
+      entries
+        .filter((entry) => entry.mechanic === 'stack')
+        .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role))
+        .forEach((entry) => desired.push({ id: entry.id, marker: myDmuP2StopMarkerForStack(entry, entries, usedStops) }));
+    }
   }
 
   myDmuP2IdleGroup(data, round).forEach((entry, index) =>
@@ -1111,6 +1358,25 @@ const myDmuScheduleP2Round8 = (data) => {
     data.myDmuP2Round = 8;
     myDmuApplyP2Round(data, 8);
   }, 600);
+};
+
+const myDmuHandleP2Headmarker = (data, matches) => {
+  const mechanic = myDmuP2Headmarkers[myDmuNormalizeHeadmarkerId(matches.id)];
+  if (mechanic === undefined)
+    return;
+  const entry = myDmuP2EntryFromHeadmarker(data, matches, mechanic);
+  data.myDmuP2Initial[entry.id] ??= entry;
+  data.myDmuP2Current[entry.id] = entry;
+  const candidateRound = myDmuP2HeadmarkerCandidateRound(data);
+  const seen = myDmuP2RecordRoundHeadmarker(data, candidateRound, entry.id);
+  myDmuEnsureP2Groups(data);
+  if (candidateRound === 1) {
+    if (data.myDmuP2InitialLocked)
+      myDmuApplyP2Round(data, 1);
+    return;
+  }
+  if (seen >= 4)
+    myDmuApplyP2Round(data, candidateRound);
 };
 
 const myDmuP2Instruction = (data, round) => {
@@ -2779,27 +3045,22 @@ Options.Triggers.push({
       },
     },
     {
+      id: '绝妖星 P2 八轮塔塔位',
+      type: 'MapEffect',
+      netRegex: {
+        flags: myDmuP2TowerMapEffectFlags,
+        location: Object.keys(myDmuP2TowerPoints),
+        capture: true,
+      },
+      condition: (data) => data.myDmuPhase === 'p2',
+      run: (data, matches) => myDmuP2RecordTowerMapEffect(data, matches),
+    },
+    {
       id: '绝妖星 P2 八轮塔头标',
       type: 'HeadMarker',
       netRegex: { id: Object.keys(myDmuP2Headmarkers), capture: true },
-      preRun: (data, matches) => {
-        const mechanic = myDmuP2Headmarkers[myDmuNormalizeHeadmarkerId(matches.id)];
-        if (mechanic === undefined)
-          return;
-        const entry = myDmuP2EntryFromHeadmarker(data, matches, mechanic);
-        data.myDmuP2Initial[entry.id] ??= entry;
-        data.myDmuP2Current[entry.id] = entry;
-        const candidateRound = myDmuP2HeadmarkerCandidateRound(data);
-        const seen = myDmuP2RecordRoundHeadmarker(data, candidateRound, entry.id);
-        myDmuEnsureP2Groups(data);
-        if (candidateRound === 1) {
-          if (data.myDmuP2InitialLocked)
-            myDmuApplyP2Round(data, 1);
-          return;
-        }
-        if (seen >= 4)
-          myDmuApplyP2Round(data, candidateRound);
-      },
+      promise: (data, matches) => myDmuP2RememberCombatantPosition(data, matches.targetId),
+      run: (data, matches) => myDmuHandleP2Headmarker(data, matches),
     },
     {
       id: '绝妖星 P2 光之波动轮次校验',
