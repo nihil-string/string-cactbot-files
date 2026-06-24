@@ -1526,8 +1526,6 @@ const myDmuApplyP3MahjongMarkers = (data) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P3MahjongMarkV3'))
     return false;
   const state = data.myDmuP3Mahjong;
-  if (state?.marked)
-    return true;
   const markers = Object.values(state?.markers ?? {});
   if (markers.length < 8)
     return false;
@@ -1545,8 +1543,16 @@ const myDmuApplyP3MahjongMarkers = (data) => {
     id: entry.id,
     marker: state.plan.markerByMahjong[entry.mahjong],
   }));
+  const signature = desired
+    .map((item) => `${item.id}:${item.marker}`)
+    .sort()
+    .join('|');
+  if (state.markSignature === signature)
+    return true;
+
   myDmuMarkQueue(data, desired, '绝妖星 P3 麻将');
   state.marked = true;
+  state.markSignature = signature;
   return true;
 };
 
