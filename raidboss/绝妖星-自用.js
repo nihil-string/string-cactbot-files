@@ -17,6 +17,25 @@ const myDmuDefaultJobOrder = [
   'DNC', 'BRD', 'MCH',
   'PCT', 'BLM', 'SMN', 'RDM', 'BLU',
 ];
+const myDmuManagedMarkTypes = [
+  'attack1',
+  'attack2',
+  'attack3',
+  'attack4',
+  'attack5',
+  'attack6',
+  'attack7',
+  'attack8',
+  'bind1',
+  'bind2',
+  'bind3',
+  'stop1',
+  'stop2',
+  'square',
+  'circle',
+  'cross',
+  'triangle',
+];
 const myDmuJobGroups = {
   PLD: 'tank',
   WAR: 'tank',
@@ -614,6 +633,30 @@ const myDmuChangedMarks = (data, marks) => {
   return changed;
 };
 
+const myDmuSendQueueActions = (data, queue, note) => {
+  const fl = myDmuFl(data);
+  if (fl?.doQueueActions !== undefined) {
+    fl.doQueueActions(queue, note);
+    return;
+  }
+  callOverlayHandler({
+    call: 'PostNamazu',
+    c: 'DoQueueActions',
+    p: JSON.stringify(queue.map((item) => {
+      if (item.c !== 'mark')
+        return item;
+      const payload = typeof item.p === 'string' ? JSON.parse(item.p) : item.p;
+      return {
+        ...item,
+        p: JSON.stringify({
+          ...payload,
+          ActorID: typeof payload.ActorID === 'string' ? Number.parseInt(payload.ActorID, 16) : payload.ActorID,
+        }),
+      };
+    })),
+  });
+};
+
 const myDmuMarkQueue = (data, items, note) => {
   const marks = myDmuChangedMarks(data, items.filter((item) => item?.id !== undefined && item?.marker !== undefined));
   if (marks.length === 0)
@@ -629,22 +672,7 @@ const myDmuMarkQueue = (data, items, note) => {
     },
     d: index === 0 ? 0 : 120,
   }));
-  const fl = myDmuFl(data);
-  if (fl?.doQueueActions !== undefined) {
-    fl.doQueueActions(queue, note);
-    return;
-  }
-  callOverlayHandler({
-    call: 'PostNamazu',
-    c: 'DoQueueActions',
-    p: JSON.stringify(queue.map((item) => ({
-      ...item,
-      p: JSON.stringify({
-        ...item.p,
-        ActorID: typeof item.p.ActorID === 'string' ? Number.parseInt(item.p.ActorID, 16) : item.p.ActorID,
-      }),
-    }))),
-  });
+  myDmuSendQueueActions(data, queue, note);
 };
 
 const myDmuForgetMarkState = (data, items) => {
@@ -679,22 +707,48 @@ const myDmuClearMarkQueue = (data, items, note) => {
     },
     d: index === 0 ? 0 : 120,
   }));
-  const fl = myDmuFl(data);
-  if (fl?.doQueueActions !== undefined) {
-    fl.doQueueActions(queue, note);
-    return;
+  myDmuSendQueueActions(data, queue, note);
+};
+
+const myDmuClearAllMarkQueueItems = (localOnly, firstDelayMs = 0) => {
+  if (localOnly) {
+    return myDmuManagedMarkTypes.map((markType, index) => ({
+      c: 'mark',
+      p: {
+        ActorID: 0xE000000,
+        MarkType: markType,
+        LocalOnly: true,
+      },
+      d: index === 0 ? firstDelayMs : 0,
+    }));
   }
-  callOverlayHandler({
-    call: 'PostNamazu',
-    c: 'DoQueueActions',
-    p: JSON.stringify(queue.map((item) => ({
-      ...item,
-      p: JSON.stringify({
-        ...item.p,
-        ActorID: typeof item.p.ActorID === 'string' ? Number.parseInt(item.p.ActorID, 16) : item.p.ActorID,
-      }),
-    }))),
-  });
+  return [...Array(8).keys()].map((index) => ({
+    c: 'DoTextCommand',
+    p: `/mk off <${index + 1}>`,
+    d: index === 0 ? firstDelayMs : 0,
+  }));
+};
+
+const myDmuP2MarkFullResetQueue = (data, items, note) => {
+  const marks = items.filter((item) => item?.id !== undefined && item?.marker !== undefined);
+  if (marks.length === 0)
+    return;
+
+  data.myDmuMarkState = myDmuNewMarkState();
+  myDmuChangedMarks(data, marks);
+
+  const localOnly = myDmuMarkLocalOnly(data);
+  const clearQueue = myDmuClearAllMarkQueueItems(localOnly);
+  const markQueue = marks.map((item, index) => ({
+    c: 'mark',
+    p: {
+      ActorID: item.id,
+      MarkType: item.marker,
+      LocalOnly: localOnly,
+    },
+    d: index === 0 ? 180 : 80,
+  }));
+  myDmuSendQueueActions(data, [...clearQueue, ...markQueue], note);
 };
 
 const myDmuClearMarks = (data) => {
@@ -1298,8 +1352,10 @@ const myDmuP2DesiredMarkers = (data, round) => {
   if (entries.length !== 4)
     return [];
 
+  const isPair2222 = myDmuP2TowerScheme(data) === myDmuP2TowerSchemes.pair2222;
   let desired = myDmuP2LegacyDesiredMarkers(entries);
-  desired = myDmuP2EvenConeSpreadDesired(data, round, entries) ?? desired;
+  if (isPair2222)
+    desired = myDmuP2EvenConeSpreadDesired(data, round, entries) ?? desired;
   if (round % 2 === 1) {
     desired = [];
     const cones = entries
@@ -1312,7 +1368,7 @@ const myDmuP2DesiredMarkers = (data, round) => {
       desired.push({ id: entry.id, marker: ['triangle', 'bind1', 'bind2', 'bind3'][index] ?? 'bind3' }));
     spreads.forEach((entry, index) =>
       desired.push({ id: entry.id, marker: ['circle', 'attack1', 'attack2', 'attack3'][index] ?? 'attack3' }));
-    const stackDesired = myDmuP2OddStackDesired(data, round, entries);
+    const stackDesired = isPair2222 ? myDmuP2OddStackDesired(data, round, entries) : undefined;
     if (stackDesired !== undefined) {
       desired.push(...stackDesired);
     } else {
@@ -1340,7 +1396,7 @@ const myDmuApplyP2Round = (data, round) => {
   if (data.myDmuP2AppliedRoundSignatures?.[round] === signature)
     return true;
 
-  myDmuMarkQueue(data, desired, `绝妖星 P2 八轮塔 ${round}`);
+  myDmuP2MarkFullResetQueue(data, desired, `绝妖星 P2 八轮塔 ${round}`);
   data.myDmuP2AppliedRounds[round] = true;
   data.myDmuP2AppliedRoundSignatures[round] = signature;
   return true;
