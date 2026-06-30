@@ -36,6 +36,7 @@ const myDmuManagedMarkTypes = [
   'cross',
   'triangle',
 ];
+const myDmuP2MarkAfterClearDelayMs = 2500;
 const myDmuJobGroups = {
   PLD: 'tank',
   WAR: 'tank',
@@ -725,7 +726,7 @@ const myDmuClearAllMarkQueueItems = (localOnly, firstDelayMs = 0) => {
   return [...Array(8).keys()].map((index) => ({
     c: 'DoTextCommand',
     p: `/mk off <${index + 1}>`,
-    d: index === 0 ? firstDelayMs : 0,
+    d: index === 0 ? firstDelayMs : 120,
   }));
 };
 
@@ -734,21 +735,39 @@ const myDmuP2MarkFullResetQueue = (data, items, note) => {
   if (marks.length === 0)
     return;
 
-  data.myDmuMarkState = myDmuNewMarkState();
-  myDmuChangedMarks(data, marks);
-
   const localOnly = myDmuMarkLocalOnly(data);
   const clearQueue = myDmuClearAllMarkQueueItems(localOnly);
-  const markQueue = marks.map((item, index) => ({
-    c: 'mark',
-    p: {
-      ActorID: item.id,
-      MarkType: item.marker,
-      LocalOnly: localOnly,
-    },
-    d: index === 0 ? 180 : 80,
-  }));
-  myDmuSendQueueActions(data, [...clearQueue, ...markQueue], note);
+  myDmuSendQueueActions(data, clearQueue, `${note} 清标`);
+
+  data.myDmuP2MarkTimers ??= {};
+  if (data.myDmuP2MarkTimers[note] !== undefined)
+    clearTimeout(data.myDmuP2MarkTimers[note]);
+  data.myDmuP2MarkTimers[note] = setTimeout(() => {
+    delete data.myDmuP2MarkTimers?.[note];
+    if (data.myDmuPhase !== 'p2' || !myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'))
+      return;
+
+    data.myDmuMarkState = myDmuNewMarkState();
+    myDmuChangedMarks(data, marks);
+
+    const markLocalOnly = myDmuMarkLocalOnly(data);
+    const markQueue = marks.map((item, index) => ({
+      c: 'mark',
+      p: {
+        ActorID: item.id,
+        MarkType: item.marker,
+        LocalOnly: markLocalOnly,
+      },
+      d: index === 0 ? 0 : 120,
+    }));
+    myDmuSendQueueActions(data, markQueue, note);
+  }, myDmuP2MarkAfterClearDelayMs);
+};
+
+const myDmuClearP2MarkTimers = (data) => {
+  for (const timer of Object.values(data.myDmuP2MarkTimers ?? {}))
+    clearTimeout(timer);
+  data.myDmuP2MarkTimers = {};
 };
 
 const myDmuClearMarks = (data) => {
@@ -812,6 +831,7 @@ const myDmuResetP2 = (data) => {
     clearTimeout(data.myDmuP2Round8Timer);
     data.myDmuP2Round8Timer = undefined;
   }
+  myDmuClearP2MarkTimers(data);
   data.myDmuP2Initial = {};
   data.myDmuP2Current = {};
   data.myDmuP2GroupA = [];
@@ -823,6 +843,7 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2Round = 0;
   data.myDmuP2AbilityRound = 0;
   data.myDmuP2Round8Timer = undefined;
+  data.myDmuP2MarkTimers = {};
   data.myDmuP2BuffCounts = {};
   data.myDmuP2FuturePastCount = 0;
   data.myDmuP2CombatantPositions = {};
@@ -881,6 +902,22 @@ const myDmuResetP4 = (data) => {
   };
 };
 
+const myDmuResetP5 = (data) => {
+  data.myDmuP5 = {
+    mitigationSent: {},
+    scholarShieldCount: 0,
+  };
+};
+
+const myDmuResetAll = (data) => {
+  myDmuResetP1(data);
+  myDmuResetP2(data);
+  myDmuResetP3Mahjong(data);
+  myDmuResetP3Targets(data);
+  myDmuResetP4(data);
+  myDmuResetP5(data);
+};
+
 const myDmuInitState = () => ({
   myDmuPhase: 'p1',
   myDmuSpeech: {},
@@ -911,6 +948,7 @@ const myDmuInitState = () => ({
   myDmuP2Round: 0,
   myDmuP2AbilityRound: 0,
   myDmuP2Round8Timer: undefined,
+  myDmuP2MarkTimers: {},
   myDmuP2BuffCounts: {},
   myDmuP2FuturePastCount: 0,
   myDmuP2CombatantPositions: {},
@@ -923,6 +961,8 @@ const myDmuInitState = () => ({
   myDmuP3Mahjong: {
     markers: {},
     lines: [],
+    lineSources: {},
+    earlyShockwaveSeen: false,
     plan: undefined,
     marked: false,
     calloutShown: false,
