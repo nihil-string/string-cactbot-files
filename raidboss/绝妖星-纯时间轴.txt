@@ -277,7 +277,7 @@ hideall "--sync--"
 827.86 "顶起" #Ability { id: "BB06" }
 840.8 "--sync--" #StartsUsing { id: "C258" } jump "p3-enrage"
 840.8 "--sync--" #StartsUsing { id: "C259" } jump "p3-enrage"
-848.29 "--sync--" StartsUsing { id: "C2DC", source: "凯夫卡" } jump "p4"
+848.29 "--sync--" StartsUsing { id: "C2DC", source: "凯夫卡" } window 180,10 jump "p4"
 845.8 "陨石流星（狂暴？）" #Ability { id: "C258" } # Exdeath >0% HP?
 845.8 "深层痛楚（狂暴？）" #Ability { id: "C259" } # Chaos >0% HP?
 ### Phase 4 - Reborn Exdeath and Kefka
@@ -330,10 +330,10 @@ hideall "--sync--"
 # BB3A impact is cast-time projected because the clear pull interrupted it before resolution.
 # Do not use forcejump to the same timestamp: missed same-time forcejumps can recurse in cactbot.
 # Official cactbot also resyncs P5 with C3FD, C652, BB3C, and BB3A.
-1042.9 label "p5"
-1043.1 "--sync--" GameLog { code: "0044", line: "既然你们执意要继续创造.*" } window 180,30 jump "p5"
-1049.9 label "p5-line2"
-1049.9 "--sync--" GameLog { code: "0044", line: "那我就继续破坏.*" } window 60,30
+1042.58 label "p5"
+1042.58 "--sync--" GameLog { code: "0044", line: "既然你们执意要继续创造.*" } window 180,30 jump "p5"
+1050.58 label "p5-line2"
+1050.58 "--sync--" GameLog { code: "0044", line: "那我就继续破坏.*" } window 60,30
 # P5 dialogue timing is second-rounded and can drift; after the two entry lines, sync by mechanics.
 1060.9 "连续究极 1" StartsUsing { id: "BB40", source: "凯夫卡" } window 20,5
 1064.9 "连续究极 1" Ability { id: "BB40", source: "凯夫卡" }
