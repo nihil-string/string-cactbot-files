@@ -657,26 +657,30 @@ const myDmuSendQueueActions = (data, queue, note) => {
   });
 };
 
+const myDmuValidMarkItem = (item) =>
+  item?.id !== undefined && item.id !== null && `${item.id}`.length > 0 &&
+  item?.marker !== undefined && item.marker !== null && `${item.marker}`.length > 0;
+
 const myDmuMarkQueue = (data, items, note) => {
-  const marks = myDmuChangedMarks(data, items.filter((item) => item?.id !== undefined && item?.marker !== undefined));
+  const marks = myDmuChangedMarks(data, items.filter(myDmuValidMarkItem));
   if (marks.length === 0)
     return;
 
   const localOnly = myDmuMarkLocalOnly(data);
-  const queue = marks.map((item, index) => ({
+  const queue = marks.map((item) => ({
     c: 'mark',
     p: {
       ActorID: item.id,
       MarkType: item.marker,
       LocalOnly: localOnly,
     },
-    d: index === 0 ? 0 : 120,
+    d: 0,
   }));
   myDmuSendQueueActions(data, queue, note);
 };
 
 const myDmuFastMarkQueue = (data, items, note) => {
-  const marks = myDmuChangedMarks(data, items.filter((item) => item?.id !== undefined && item?.marker !== undefined));
+  const marks = myDmuChangedMarks(data, items.filter(myDmuValidMarkItem));
   if (marks.length === 0)
     return;
 
@@ -698,7 +702,7 @@ const myDmuForgetMarkState = (data, items) => {
   const nextMarkers = { ...state.markers };
   const nextActors = { ...state.actors };
   for (const item of items) {
-    if (item?.id === undefined || item?.marker === undefined)
+    if (!myDmuValidMarkItem(item))
       continue;
     const actorKey = myDmuMarkActorKey(item.id);
     if (nextActors[actorKey] === item.marker)
@@ -710,20 +714,20 @@ const myDmuForgetMarkState = (data, items) => {
 };
 
 const myDmuClearMarkQueue = (data, items, note) => {
-  const marks = items.filter((item) => item?.id !== undefined && item?.marker !== undefined);
+  const marks = items.filter(myDmuValidMarkItem);
   if (marks.length === 0)
     return;
 
   myDmuForgetMarkState(data, marks);
   const localOnly = myDmuMarkLocalOnly(data);
-  const queue = marks.map((item, index) => ({
+  const queue = marks.map((item) => ({
     c: 'mark',
     p: {
       ActorID: item.id,
       MarkType: item.marker,
       LocalOnly: localOnly,
     },
-    d: index === 0 ? 0 : 120,
+    d: 0,
   }));
   myDmuSendQueueActions(data, queue, note);
 };

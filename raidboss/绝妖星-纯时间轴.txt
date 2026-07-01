@@ -287,34 +287,34 @@ hideall "--sync--"
 905.0 "闹哄哄魂击" Ability { id: "C2DC" }
 909.6 "玄乎乎魔法 1" StartsUsing { id: "BA94" }
 909.6 "冰雷 1" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
-910.0 "大十字 1" StartsUsing { id: "BB14" }
+909.955 "大十字 1" StartsUsing { id: "BB14" }
 914.6 "玄乎乎魔法 1" Ability { id: "BA94" }
 914.6 "冰雷 1" Ability { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
 919.0 "大十字 1" Ability { id: "BB14" }
-924.5 "玄乎乎魔法 2" StartsUsing { id: "BA94" }
-924.5 "冰雷 2" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
-925.0 "大十字 2" StartsUsing { id: "BB14" }
+924.634 "玄乎乎魔法 2" StartsUsing { id: "BA94" }
+924.634 "冰雷 2" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+924.945 "大十字 2" StartsUsing { id: "BB14" }
 929.5 "玄乎乎魔法 2" Ability { id: "BA94" }
 929.5 "冰雷 2" Ability { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
 933.9 "大十字 2" Ability { id: "BB14" }
-939.7 "玄乎乎魔法 3" StartsUsing { id: "BA94" }
-939.7 "冰雷 3" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
-940.0 "大十字 3" StartsUsing { id: "BB14" }
+939.74 "玄乎乎魔法 3" StartsUsing { id: "BA94" }
+939.74 "冰雷 3" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
+939.919 "大十字 3" StartsUsing { id: "BB14" }
 944.7 "玄乎乎魔法 3" Ability { id: "BA94" }
 944.7 "冰雷 3" Ability { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
 948.9 "大十字 3" Ability { id: "BB14" }
-956.0 "生者暗黑光/死者暗黑光" StartsUsing { id: ["C394", "C395", "C396"] }
+956.077 "生者暗黑光/死者暗黑光" StartsUsing { id: ["C394", "C395", "C396"] }
 961.5 "生者暗黑光/死者暗黑光" Ability { id: ["C394", "C395", "C396"] }
 965.4 "死亡波涛" Ability { id: ["BB1C", "BB1D"] }
-966.8 "魔法储存" StartsUsing { id: "BAA4" }
+966.87 "魔法储存" StartsUsing { id: "BAA4" }
 969.8 "魔法储存" Ability { id: "BAA4" }
 970.1 "死亡波纹/死亡落雷" Ability { id: ["BB18", "BB19", "BB1A", "BB1B"] }
-973.0 "劈啪啪暴雷" StartsUsing { id: ["BA9F", "BAA0", "BAA1", "C5DE"] }
+973.176 "劈啪啪暴雷" StartsUsing { id: ["BA9F", "BAA0", "BAA1", "C5DE"] }
 978.0 "劈啪啪暴雷" Ability { id: ["BA9F", "BAA0", "BAA1", "C5DE"] }
 979.1 "死亡尖叫 1" Ability { id: ["BB16", "BB17"] }
-983.2 "扑腾腾究极 1" StartsUsing { id: "C24A" }
+983.293 "扑腾腾究极 1" StartsUsing { id: "C24A" }
 988.2 "扑腾腾究极 1" Ability { id: "C24A" }
-991.1 "扩大大冰封" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E"] }
+991.053 "扩大大冰封" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E"] }
 995.20 "死亡波纹/死亡落雷" Ability { id: ["BB18", "BB19", "BB1A", "BB1B"] }
 996.09 "扩大大冰封" Ability { id: ["BA95", "BA98", "BA9B", "BA9E"] }
 1002.53 "魔法放出" StartsUsing { id: "BAA5" }
@@ -322,7 +322,7 @@ hideall "--sync--"
 1009.56 "魔法放出" #Ability { id: "BAA5" }
 1020.5 label "p4-success"
 1020.94 "--sync--" Ability { id: "C3FD" } window 90,5 jump "p4-success"
-1022.0 "扑腾腾究极 2" StartsUsing { id: "C24A" }
+1021.93 "扑腾腾究极 2" StartsUsing { id: "C24A" }
 1027.0 "扑腾腾究极 2" Ability { id: "C24A" }
 ### Phase 5 - Final Kefka
 # Local ACT calibrated from 12 P5 pulls through 2026-06-12.
@@ -335,7 +335,7 @@ hideall "--sync--"
 1050.58 label "p5-line2"
 1050.58 "--sync--" GameLog { code: "0044", line: "那我就继续破坏.*" } window 60,30
 # P5 dialogue timing is second-rounded and can drift; after the two entry lines, sync by mechanics.
-1060.9 "连续究极 1" StartsUsing { id: "BB40", source: "凯夫卡" } window 20,5
+1061.092 "连续究极 1" StartsUsing { id: "BB40", source: "凯夫卡" } window 20,5
 1064.9 "连续究极 1" Ability { id: "BB40", source: "凯夫卡" }
 1066.2 "连续究极 2" #Ability { id: "BB41" }
 1066.9 "连续究极 3" #Ability { id: "BB41" }
@@ -374,7 +374,7 @@ hideall "--sync--"
 1138.2 "二选一的灾祟 2" #Ability { id: ["C24F", "C24E"] }
 1138.7 "暴雷/冰封/爆炎 3" #Ability { id: ["BB43", "BB44", "BB45"] }
 1139.0 "地震/龙卷 2" #Ability { id: ["BB4A", "BB4B"] }
-1143.0 "连续究极 6" StartsUsing { id: "BB40", source: "凯夫卡" }
+1142.932 "连续究极 6" StartsUsing { id: "BB40", source: "凯夫卡" }
 1147.0 "连续究极 6" Ability { id: "BB40", source: "凯夫卡" }
 1148.1 "连续究极 7" #Ability { id: "BB41" }
 1148.8 "连续究极 8" #Ability { id: "BB41" }
@@ -409,7 +409,7 @@ hideall "--sync--"
 1205.5 "--sync--" Ability { id: "C652", source: "凯夫卡" } window 1,1
 1205.5 "魔击 10" #Ability { id: ["C652", "C653", "C654", "C655"], source: "凯夫卡" }
 1207.6 label "p5-forsaken"
-1207.6 "遗弃末世" StartsUsing { id: "BB35", source: "凯夫卡" } window 60,10
+1207.642 "遗弃末世" StartsUsing { id: "BB35", source: "凯夫卡" } window 60,10
 1217.5 "遗弃末世 1" #Ability { id: "BB35", source: "凯夫卡" }
 1217.6 "遗弃末世地面 1" #StartsUsing { id: ["BB37", "BB38"], source: "凯夫卡" }
 1222.8 "遗弃末世地面 1" #Ability { id: ["BB37", "BB38", "BB39"] }
@@ -423,7 +423,7 @@ hideall "--sync--"
 1242.4 "遗弃末世地面 4" #StartsUsing { id: ["BB37", "BB38"] }
 1247.3 "遗弃末世地面 4" #Ability { id: ["BB37", "BB38", "BB39"] }
 1252.2 label "p5-enrage"
-1252.2 "遗弃末点（狂暴）" StartsUsing { id: "BB3A", source: "凯夫卡" } window 60,10
+1252.288 "遗弃末点（狂暴）" StartsUsing { id: "BB3A", source: "凯夫卡" } window 60,10
 1278.1 "遗弃末点（狂暴）" #Ability { id: "BB3A", source: "凯夫卡" } # cast-time projection; clear log interrupted before resolution
 # Phase 2 Enrage Sequence
 10376.2 label "p2-enrage"
