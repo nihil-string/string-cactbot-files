@@ -36,7 +36,6 @@ const myDmuManagedMarkTypes = [
   'cross',
   'triangle',
 ];
-const myDmuP2MarkAfterClearDelayMs = 2500;
 const myDmuJobGroups = {
   PLD: 'tank',
   WAR: 'tank',
@@ -676,6 +675,24 @@ const myDmuMarkQueue = (data, items, note) => {
   myDmuSendQueueActions(data, queue, note);
 };
 
+const myDmuFastMarkQueue = (data, items, note) => {
+  const marks = myDmuChangedMarks(data, items.filter((item) => item?.id !== undefined && item?.marker !== undefined));
+  if (marks.length === 0)
+    return;
+
+  const localOnly = myDmuMarkLocalOnly(data);
+  const queue = marks.map((item) => ({
+    c: 'mark',
+    p: {
+      ActorID: item.id,
+      MarkType: item.marker,
+      LocalOnly: localOnly,
+    },
+    d: 0,
+  }));
+  myDmuSendQueueActions(data, queue, note);
+};
+
 const myDmuForgetMarkState = (data, items) => {
   const state = myDmuEnsureMarkState(data);
   const nextMarkers = { ...state.markers };
@@ -709,65 +726,6 @@ const myDmuClearMarkQueue = (data, items, note) => {
     d: index === 0 ? 0 : 120,
   }));
   myDmuSendQueueActions(data, queue, note);
-};
-
-const myDmuClearAllMarkQueueItems = (localOnly, firstDelayMs = 0) => {
-  if (localOnly) {
-    return myDmuManagedMarkTypes.map((markType, index) => ({
-      c: 'mark',
-      p: {
-        ActorID: 0xE000000,
-        MarkType: markType,
-        LocalOnly: true,
-      },
-      d: index === 0 ? firstDelayMs : 0,
-    }));
-  }
-  return [...Array(8).keys()].map((index) => ({
-    c: 'DoTextCommand',
-    p: `/mk off <${index + 1}>`,
-    d: index === 0 ? firstDelayMs : 120,
-  }));
-};
-
-const myDmuP2MarkFullResetQueue = (data, items, note) => {
-  const marks = items.filter((item) => item?.id !== undefined && item?.marker !== undefined);
-  if (marks.length === 0)
-    return;
-
-  const localOnly = myDmuMarkLocalOnly(data);
-  const clearQueue = myDmuClearAllMarkQueueItems(localOnly);
-  myDmuSendQueueActions(data, clearQueue, `${note} 清标`);
-
-  data.myDmuP2MarkTimers ??= {};
-  if (data.myDmuP2MarkTimers[note] !== undefined)
-    clearTimeout(data.myDmuP2MarkTimers[note]);
-  data.myDmuP2MarkTimers[note] = setTimeout(() => {
-    delete data.myDmuP2MarkTimers?.[note];
-    if (data.myDmuPhase !== 'p2' || !myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'))
-      return;
-
-    data.myDmuMarkState = myDmuNewMarkState();
-    myDmuChangedMarks(data, marks);
-
-    const markLocalOnly = myDmuMarkLocalOnly(data);
-    const markQueue = marks.map((item, index) => ({
-      c: 'mark',
-      p: {
-        ActorID: item.id,
-        MarkType: item.marker,
-        LocalOnly: markLocalOnly,
-      },
-      d: index === 0 ? 0 : 120,
-    }));
-    myDmuSendQueueActions(data, markQueue, note);
-  }, myDmuP2MarkAfterClearDelayMs);
-};
-
-const myDmuClearP2MarkTimers = (data) => {
-  for (const timer of Object.values(data.myDmuP2MarkTimers ?? {}))
-    clearTimeout(timer);
-  data.myDmuP2MarkTimers = {};
 };
 
 const myDmuClearMarks = (data) => {
@@ -831,7 +789,6 @@ const myDmuResetP2 = (data) => {
     clearTimeout(data.myDmuP2Round8Timer);
     data.myDmuP2Round8Timer = undefined;
   }
-  myDmuClearP2MarkTimers(data);
   data.myDmuP2Initial = {};
   data.myDmuP2Current = {};
   data.myDmuP2GroupA = [];
@@ -843,7 +800,6 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2Round = 0;
   data.myDmuP2AbilityRound = 0;
   data.myDmuP2Round8Timer = undefined;
-  data.myDmuP2MarkTimers = {};
   data.myDmuP2BuffCounts = {};
   data.myDmuP2FuturePastCount = 0;
   data.myDmuP2CombatantPositions = {};
@@ -948,7 +904,6 @@ const myDmuInitState = () => ({
   myDmuP2Round: 0,
   myDmuP2AbilityRound: 0,
   myDmuP2Round8Timer: undefined,
-  myDmuP2MarkTimers: {},
   myDmuP2BuffCounts: {},
   myDmuP2FuturePastCount: 0,
   myDmuP2CombatantPositions: {},
@@ -1436,7 +1391,7 @@ const myDmuApplyP2Round = (data, round) => {
   if (data.myDmuP2AppliedRoundSignatures?.[round] === signature)
     return true;
 
-  myDmuP2MarkFullResetQueue(data, desired, `绝妖星 P2 八轮塔 ${round}`);
+  myDmuFastMarkQueue(data, desired, `绝妖星 P2 八轮塔 ${round}`);
   data.myDmuP2AppliedRounds[round] = true;
   data.myDmuP2AppliedRoundSignatures[round] = signature;
   return true;
@@ -2479,6 +2434,16 @@ const myDmuP4ScheduleKindClear = (data, kind, records, minVisibleMs = 0) => {
     myDmuP4ClearKind(data, kind, 'timer'));
 };
 
+const myDmuP4ScheduleElementTransition = (data, round, records) => {
+  if (round === undefined || round === 'unknown')
+    return;
+  const expiresAt = myDmuP4MinExpiresAt(records);
+  const now = Date.now();
+  const dueAt = expiresAt === undefined ? now : expiresAt;
+  myDmuP4ScheduleTimer(data, `transition-${round}`, dueAt - now, () =>
+    myDmuP4TransitionElementToPetrify(data, round, 'timer'));
+};
+
 const myDmuApplyP4ElementRound = (data, round) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
@@ -2501,7 +2466,7 @@ const myDmuApplyP4ElementRound = (data, round) => {
   if (!myDmuP4SetKindMarkers(data, round, desired, `绝妖星 P4 元素 ${round}`))
     return false;
   data.myDmuP4.elementMarked[round] = true;
-  myDmuP4ScheduleKindClear(data, round, records, 0);
+  myDmuP4ScheduleElementTransition(data, round, records);
   if (round === 'long') {
     myDmuTrySendP4LongAttack12Chat(data);
     myDmuTrySendP4LongPetrifyChat(data);
@@ -2513,8 +2478,6 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
   if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
     return false;
   if (round === undefined || data.myDmuP4.petrifyMarked[round])
-    return false;
-  if (!data.myDmuP4.elementCleared[round])
     return false;
   if (round === 'long' && (!data.myDmuP4.elementCleared.short || !data.myDmuP4.petrifyCleared.short))
     return false;
@@ -2544,6 +2507,21 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
   if (round === 'long')
     myDmuTrySendP4LongPetrifyChat(data);
   return true;
+};
+
+const myDmuP4TransitionElementToPetrify = (data, round, reason) => {
+  if (!myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
+    return false;
+  if (round === undefined || round === 'unknown')
+    return false;
+  if (!data.myDmuP4.elementMarked[round] || data.myDmuP4.elementCleared[round])
+    return false;
+
+  const petrifyApplied = myDmuApplyP4PetrifyRound(data, round);
+  const elementCleared = myDmuP4ClearKind(data, round, reason);
+  if (!petrifyApplied)
+    myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, `after-transition-${round}`), 10, 250);
+  return petrifyApplied || elementCleared;
 };
 
 function myDmuProcessP4MarkTiming(data, source = 'process') {
@@ -3457,8 +3435,7 @@ Options.Triggers.push({
           myDmuNumber(matches.duration),
         ) ?? 'unknown';
         if (data.myDmuP4.elementMarked[round] && !data.myDmuP4.elementCleared[round])
-          myDmuP4ScheduleTimer(data, `lose-element-${round}`, 800, () =>
-            myDmuP4ClearKind(data, round, 'lose-effect'));
+          myDmuP4TransitionElementToPetrify(data, round, 'lose-effect');
       },
     },
     {
