@@ -281,6 +281,28 @@ const myDmuP5Mitigations = [
   { id: '18', skill: '遗弃末世', target: 'ST血仇 D2牵制 昏乱', field: '步道 策动 卡最后4个' },
 ];
 
+const myDmuP3FirewallEffects = {
+  '1060': {
+    targetKind: 'chaos',
+    text: '打卡奥斯',
+  },
+  '1062': {
+    targetKind: 'exdeath',
+    text: '打艾克斯迪司',
+  },
+};
+
+const myDmuP5SymphonyBuffs = {
+  '14E6': {
+    kind: 'flare',
+    text: '分摊死刑，退避',
+  },
+  '14E7': {
+    kind: 'holy',
+    text: '分摊死刑，挑衅，站在目标圈',
+  },
+};
+
 const myDmuP5MitigationText = (entry) => {
   const parts = [`${entry.skill}减伤`];
   if (entry.target !== undefined)
@@ -377,6 +399,9 @@ const myDmuForceTtsEnabled = (data) => myDmuBooleanConfig(data, 'MyDMU_ForceTTS'
 const myDmuP1CalloutEnabled = (data) =>
   data.myDmuPhase === 'p1' && myDmuBooleanConfig(data, 'MyDMU_P1Callout', true);
 
+const myDmuP5CalloutEnabled = (data) =>
+  data.myDmuPhase === 'p5' && myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true);
+
 const myDmuFl = (data) => data.stringFL ?? globalThis.Util?.string;
 
 const myDmuNormalizeHeadmarkerId = (id) => id?.toString().toUpperCase().padStart(4, '0');
@@ -417,6 +442,86 @@ const myDmuSpeakCached = (data, key) => {
     delete data.myDmuSpeech[key];
   myDmuSpeakText(data, text);
   return text;
+};
+
+const myDmuP3FirewallInfo = (effectId) =>
+  myDmuP3FirewallEffects[effectId?.toString().toUpperCase()];
+
+const myDmuBossKindFromName = (name) => {
+  const text = name?.toString();
+  if (text === undefined)
+    return undefined;
+  if (/艾克斯迪司|Exdeath/i.test(text))
+    return 'exdeath';
+  if (/卡奥斯|Chaos/i.test(text))
+    return 'chaos';
+  return undefined;
+};
+
+const myDmuP3FirewallTargetText = (kind) =>
+  Object.values(myDmuP3FirewallEffects).find((info) => info.targetKind === kind)?.text;
+
+const myDmuP3FirewallWrongTargetText = (data, matches) => {
+  if (matches.source !== data.me)
+    return undefined;
+  const normalizedId = matches.id?.toString().toUpperCase().replace(/^0+/u, '');
+  if (normalizedId === '7' || normalizedId === '8')
+    return undefined;
+  const targetKind = myDmuBossKindFromName(matches.target);
+  if (targetKind === undefined || data.myDmuP3FirewallTargetKind === undefined)
+    return undefined;
+  if (targetKind === data.myDmuP3FirewallTargetKind)
+    return undefined;
+  const correct = myDmuP3FirewallTargetText(data.myDmuP3FirewallTargetKind);
+  if (correct === undefined)
+    return undefined;
+  return `打错目标：${correct}`;
+};
+
+const myDmuP5SymphonyInfo = (effectId) =>
+  myDmuP5SymphonyBuffs[effectId?.toString().toUpperCase()];
+
+const myDmuEnsureP5State = (data) => {
+  data.myDmuP5 ??= {};
+  data.myDmuP5.symphonyCrowdTargets ??= [];
+  return data.myDmuP5;
+};
+
+const myDmuRecordP5CrowdHoly = (data, matches) => {
+  const state = myDmuEnsureP5State(data);
+  if (state.symphonyCrowdTargets.length >= 6) {
+    state.symphonyCrowdTargets = [];
+    state.symphonyCrowdLastSize = 0;
+  }
+
+  const key = matches.targetId ?? matches.target;
+  if (key === undefined)
+    return;
+  if (state.symphonyCrowdTargets.some((item) => item.key === key || item.name === matches.target))
+    return;
+  state.symphonyCrowdTargets.push({
+    key: key,
+    name: matches.target,
+  });
+};
+
+const myDmuP5CrowdHolyText = (data) => {
+  if (data.role === 'tank')
+    return undefined;
+
+  const state = myDmuEnsureP5State(data);
+  const size = state.symphonyCrowdTargets.length;
+  if (state.symphonyCrowdLastSize === size)
+    return undefined;
+  if (size !== 3 && size !== 6)
+    return undefined;
+
+  state.symphonyCrowdLastSize = size;
+  if (size === 6)
+    return '躲开大圈';
+
+  const onYou = state.symphonyCrowdTargets.some((item) => item.name === data.me);
+  return onYou ? '后退' : '原地不动';
 };
 
 const myDmuRolePriority = (role, order = myDmuRoleOrder) => {
@@ -877,6 +982,8 @@ const myDmuResetP5 = (data) => {
   data.myDmuP5 = {
     mitigationSent: {},
     scholarShieldCount: 0,
+    symphonyCrowdTargets: [],
+    symphonyCrowdLastSize: 0,
   };
 };
 
@@ -3057,11 +3164,13 @@ Options.Triggers.push({
         } else if (data.myDmuPhase === 'p3') {
           myDmuResetP3Mahjong(data);
           myDmuResetP3Targets(data);
+          data.myDmuP3FirewallTargetKind = undefined;
           myDmuClearMarks(data);
         } else if (data.myDmuPhase === 'p4') {
           myDmuResetP4(data);
           myDmuClearMarks(data);
         } else if (data.myDmuPhase === 'p5') {
+          myDmuResetP5(data);
           myDmuClearMarks(data);
         }
       },
@@ -3528,12 +3637,60 @@ Options.Triggers.push({
       condition: (data) =>
         data.myDmuPhase === 'p3' &&
         myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      delaySeconds: 0.5,
       durationSeconds: 5,
       suppressSeconds: 1,
-      infoText: (data) => myDmuCacheSpeech(data, 'p3Firewall', '获取防火墙'),
+      infoText: (data) => data.myDmuP3FirewallTargetKind === undefined ?
+        myDmuCacheSpeech(data, 'p3Firewall', '获取防火墙') :
+        undefined,
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p3Firewall'),
+    },
+    {
+      id: '绝妖星 P3 防火墙目标',
+      type: 'GainsEffect',
+      netRegex: { effectId: Object.keys(myDmuP3FirewallEffects), capture: true },
+      condition: (data, matches) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true) &&
+        matches.target === data.me,
+      preRun: (data, matches) => {
+        data.myDmuP3FirewallTargetKind = myDmuP3FirewallInfo(matches.effectId)?.targetKind;
+      },
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data, matches) =>
+        myDmuCacheSpeech(data, 'p3FirewallTarget', myDmuP3FirewallInfo(matches.effectId)?.text),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3FirewallTarget'),
+    },
+    {
+      id: '绝妖星 P3 防火墙移除',
+      type: 'LosesEffect',
+      netRegex: { effectId: Object.keys(myDmuP3FirewallEffects), capture: true },
+      condition: (data, matches) => data.myDmuPhase === 'p3' && matches.target === data.me,
+      run: (data) => data.myDmuP3FirewallTargetKind = undefined,
+    },
+    {
+      id: '绝妖星 P3 防火墙打错目标',
+      type: 'Ability',
+      netRegex: {
+        target: ['艾克斯迪司', '新生艾克斯迪司', '卡奥斯', 'Exdeath', 'Neo Exdeath', 'Chaos'],
+        capture: true,
+      },
+      condition: (data, matches) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true) &&
+        myDmuP3FirewallWrongTargetText(data, matches) !== undefined,
+      durationSeconds: 3,
+      suppressSeconds: 3,
+      alarmText: (data, matches) =>
+        myDmuCacheSpeech(data, 'p3FirewallWrongTarget', myDmuP3FirewallWrongTargetText(data, matches)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3FirewallWrongTarget'),
     },
     {
       id: '绝妖星 P3 深层痛楚',
@@ -3766,6 +3923,44 @@ Options.Triggers.push({
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p5ScholarShield'),
+    },
+    {
+      id: '绝妖星 P5 癫狂交响曲死刑',
+      type: 'GainsEffect',
+      netRegex: { effectId: Object.keys(myDmuP5SymphonyBuffs), capture: true },
+      condition: (data, matches) => myDmuP5CalloutEnabled(data) && matches.target === data.me,
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data, matches) =>
+        myDmuCacheSpeech(data, 'p5SymphonyTankbuster', myDmuP5SymphonyInfo(matches.effectId)?.text),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5SymphonyTankbuster'),
+    },
+    {
+      id: '绝妖星 P5 核爆远离',
+      type: 'GainsEffect',
+      netRegex: { effectId: '14E6', capture: true },
+      condition: (data, matches) => myDmuP5CalloutEnabled(data) && matches.target === data.me,
+      delaySeconds: 2.9,
+      durationSeconds: 3,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5SymphonyFlareAway', '远离'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5SymphonyFlareAway'),
+    },
+    {
+      id: '绝妖星 P5 人群神圣',
+      type: 'Ability',
+      netRegex: { id: 'BB54', capture: true },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      preRun: (data, matches) => myDmuRecordP5CrowdHoly(data, matches),
+      durationSeconds: 4,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5CrowdHoly', myDmuP5CrowdHolyText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5CrowdHoly'),
     },
     {
       id: '绝妖星 P4 元素标点时机',
