@@ -212,6 +212,8 @@ const myDmuP4MagicStorageLabels = {
   BA98: { element: 'ice', label: '真冰' },
   BA9E: { element: 'ice', label: '假冰' },
 };
+const myDmuP4ThunderSpellIds = ['BA9F', 'BAA1'];
+const myDmuP4IceSpellIds = ['BA98', 'BA9E'];
 const myDmuP4MagicReleaseHeadmarkers = {
   '02A3': { element: 'ice', invert: true, label: '冰问号' },
   '02A4': { element: 'ice', invert: false, label: '冰无问号' },
@@ -865,6 +867,7 @@ const myDmuResetP4 = (data) => {
     markAppliedAt: {},
     markTimers: {},
     mandarinDuck: {},
+    lateSpell: {},
     magicStorage: myDmuNewP4MagicStorage(),
     flutteringUltimateCount: 0,
   };
@@ -959,6 +962,7 @@ const myDmuInitState = () => ({
     markAppliedAt: {},
     markTimers: {},
     mandarinDuck: {},
+    lateSpell: {},
     flutteringUltimateCount: 0,
   },
 });
@@ -1843,7 +1847,7 @@ const myDmuP4ClassifyLengths = (records) => {
 };
 
 const myDmuP4ElementSide = (rec) => {
-  if (rec.truth === undefined)
+  if (rec?.truth === undefined)
     return undefined;
   if (rec.buffId === '15A8')
     return rec.truth ? 'out' : 'in';
@@ -2143,6 +2147,18 @@ const myDmuTrySendP4ChaosChat = (data) => {
   return myDmuSendP4BuffChat(data, 'p4-buff-chaos', `P4钢月：先${first} 后${second}`);
 };
 
+const myDmuP4ChaosActionForLength = (data, length) => {
+  const records = myDmuP4RecordsFor(data, myDmuP4ChaosBuffs);
+  myDmuP4ClassifyLengths(records);
+  for (const rec of records) {
+    myDmuP4RefreshRecordTruth(data, rec);
+    const action = myDmuP4ChaosActionText(rec);
+    if (rec.length === length && action !== undefined)
+      return action;
+  }
+  return undefined;
+};
+
 const myDmuProjectDistance = (x, y, heading, centerX = 100, centerY = 100) =>
   (x - centerX) * Math.cos(heading) + (y - centerY) * Math.sin(heading);
 
@@ -2182,6 +2198,28 @@ const myDmuP4OwnShortElementRecord = (data) => {
     });
 };
 
+const myDmuP4OwnSpreadByLength = (data, length) => {
+  const records = myDmuP4RoundRecords(data, myDmuP4ElementBuffs, length)
+    .filter((rec) => {
+      myDmuP4RefreshRecordTruth(data, rec);
+      return myDmuP4ElementSide(rec) !== undefined;
+    });
+  const ownRecord = records.find((rec) => rec.name === data.me);
+  const ownSide = myDmuP4ElementSide(ownRecord);
+  if (ownSide === 'out')
+    return true;
+  if (ownSide === 'in')
+    return false;
+
+  const spreadGroups = new Set(records
+    .filter((rec) => myDmuP4ElementSide(rec) === 'out')
+    .map((rec) => rec.group)
+    .filter((group) => group !== undefined));
+  if (spreadGroups.has('TN') && spreadGroups.has('DPS'))
+    return false;
+  return undefined;
+};
+
 const myDmuP4OwnFirstAccelerationRecord = (data) =>
   myDmuP4OwnRecordsFor(data, [myDmuP4AccelerationBuff])
     .map((rec) => {
@@ -2190,6 +2228,15 @@ const myDmuP4OwnFirstAccelerationRecord = (data) =>
     })
     .filter((rec) => myDmuP4AccelerationActionText(rec) !== undefined)
     .sort((a, b) => (a.firstSeenAt ?? 0) - (b.firstSeenAt ?? 0))[0];
+
+const myDmuP4OwnAccelerationRecordByIndex = (data, index) =>
+  myDmuP4OwnRecordsFor(data, [myDmuP4AccelerationBuff])
+    .map((rec) => {
+      myDmuP4RefreshRecordTruth(data, rec);
+      return rec;
+    })
+    .filter((rec) => myDmuP4AccelerationActionText(rec) !== undefined)
+    .sort((a, b) => (a.firstSeenAt ?? 0) - (b.firstSeenAt ?? 0))[index];
 
 const myDmuP4ShortPetrifyInfo = (data) => {
   const records = myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]);
@@ -2209,12 +2256,34 @@ const myDmuP4ShortPetrifyInfo = (data) => {
   };
 };
 
-const myDmuP4MandarinDuckSecondText = (data, spread, accelAction) => {
+const myDmuP4PetrifyInfoByLength = (data, length) => {
+  const records = myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]);
+  myDmuP4ClassifyLengths(records);
+  const roundRecords = records
+    .filter((rec) => {
+      myDmuP4RefreshRecordTruth(data, rec);
+      return rec.length === length && rec.truth !== undefined;
+    })
+    .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
+  if (roundRecords.length < 2)
+    return undefined;
+  const ownRecord = roundRecords.find((rec) => rec.name === data.me);
+  return {
+    isPetrify: ownRecord !== undefined,
+    facePetrify: roundRecords[0]?.truth === false,
+  };
+};
+
+const myDmuP4SpreadStackText = (data, spread) => {
   const ownRole = myDmuGetRpByName(data, data.me);
   const support = myDmuRoleGroup(ownRole) === 'TN';
-  const spreadText = spread ?
+  return spread ?
     support ? '左西出去分散' : '右东出去分散' :
     support ? '上北三人分摊' : '下南三人分摊';
+};
+
+const myDmuP4MandarinDuckSecondText = (data, spread, accelAction) => {
+  const spreadText = myDmuP4SpreadStackText(data, spread);
   const accelText = accelAction === '动' ? '稍后保持移动' :
     accelAction === '静' ? '稍后停手' :
       '照常输出';
@@ -2258,6 +2327,111 @@ const myDmuTrySendP4MandarinDuckChats = (data) => {
   myDmuQueueP4BuffChat(data, 'p4-mandarin-duck-element', secondText, 5.4);
   myDmuQueueP4BuffChat(data, 'p4-mandarin-duck-accel', accelText, 11.9);
   myDmuQueueP4BuffChat(data, 'p4-mandarin-duck-petrify', petrifyText, 13.9);
+  return true;
+};
+
+const myDmuRecordP4LateSpell = (data, matches) => {
+  if (data.myDmuPhase !== 'p4' || data.myDmuP4.mandarinDuck?.seenAntilight !== true)
+    return false;
+  const id = matches.id?.toUpperCase();
+  if (id === undefined)
+    return false;
+  const st = data.myDmuP4.lateSpell ??= {};
+  if (st.releaseSeen)
+    return false;
+  if (myDmuP4ThunderSpellIds.includes(id)) {
+    if (st.thunderSeen)
+      return true;
+    st.thunderSeen = true;
+    st.thunderTrue = id === 'BA9F';
+    myDmuRetryAction(() => myDmuTrySendP4LateThunderChats(data), 12, 500);
+    return true;
+  }
+  if (myDmuP4IceSpellIds.includes(id)) {
+    if (st.iceSeen)
+      return true;
+    st.iceSeen = true;
+    st.iceTrue = id === 'BA98';
+    myDmuRetryAction(() => myDmuTrySendP4LateIceChats(data), 12, 500);
+    return true;
+  }
+  return false;
+};
+
+const myDmuTrySendP4LateThunderChats = (data) => {
+  if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
+    return true;
+  const st = data.myDmuP4.lateSpell ??= {};
+  if (st.thunderTrue === undefined)
+    return true;
+
+  myDmuQueueP4BuffChat(
+    data,
+    'p4-late-thunder-safe',
+    `雷直条：${st.thunderTrue ? '去空白区' : '去紫色区'}`,
+  );
+
+  const shortPetrify = myDmuP4PetrifyInfoByLength(data, 'short');
+  if (shortPetrify === undefined)
+    return false;
+  if (shortPetrify.isPetrify)
+    myDmuQueueP4BuffChat(
+      data,
+      'p4-late-thunder-petrify-face',
+      `雷直条：${shortPetrify.facePetrify ? '面对' : '背对'}`,
+      4.0,
+    );
+
+  const firstChaos = myDmuP4ChaosActionForLength(data, 'short');
+  const spread = myDmuP4OwnSpreadByLength(data, 'long');
+  if (firstChaos === undefined || spread === undefined)
+    return false;
+
+  const spreadText = spread ? '出去分散' : '三人分摊';
+  myDmuQueueP4BuffChat(
+    data,
+    'p4-late-thunder-chaos',
+    `雷直条：场中放${firstChaos}，稍后${spreadText}`,
+    5.9,
+  );
+  myDmuQueueP4BuffChat(
+    data,
+    'p4-late-thunder-move',
+    `雷直条：${firstChaos === '钢铁' ? '躲开钢铁，' : '留在原地，稍后'}${myDmuP4SpreadStackText(data, spread)}`,
+    12.7,
+  );
+  return true;
+};
+
+const myDmuTrySendP4LateIceChats = (data) => {
+  if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
+    return true;
+  const st = data.myDmuP4.lateSpell ??= {};
+  if (st.iceTrue === undefined)
+    return true;
+
+  const accelRec = myDmuP4OwnAccelerationRecordByIndex(data, 1);
+  const accelAction = myDmuP4AccelerationActionText(accelRec);
+  const accelText = accelAction === '动' ? '动动动' :
+    accelAction === '静' ? '停停停' :
+      '正常输出';
+  myDmuQueueP4BuffChat(
+    data,
+    'p4-late-ice-safe',
+    `冰扇形：${st.iceTrue ? '空白区' : '紫色区'}，${accelText}`,
+  );
+
+  const longPetrify = myDmuP4PetrifyInfoByLength(data, 'long');
+  if (longPetrify === undefined)
+    return false;
+  myDmuQueueP4BuffChat(
+    data,
+    'p4-late-ice-petrify',
+    `冰扇形：${longPetrify.isPetrify ?
+      longPetrify.facePetrify ? '去人群前方' : '去人群后方' :
+      '人群集合'}，${longPetrify.facePetrify ? '面对' : '背对'}石化`,
+    3.7,
+  );
   return true;
 };
 
@@ -2388,7 +2562,11 @@ const myDmuP4MagicTrySendRelease = (data, source) => {
 
   const thunderFinal = thunderMod.invert ? myDmuP4MagicOppositeLabel(thunderBase) : thunderBase;
   const iceFinal = iceMod.invert ? myDmuP4MagicOppositeLabel(iceBase) : iceBase;
-  const message = `魔法放出：${thunderFinal} ${iceFinal}/${myDmuP4MagicEatText(thunderFinal, iceFinal)}`;
+  const finalChaos = myDmuP4ChaosActionForLength(data, 'long');
+  const moveText = finalChaos === '钢铁' ? '，远离' :
+    finalChaos === '月环' ? '，靠近' :
+      '';
+  const message = `魔法放出：${thunderFinal} ${iceFinal}/${myDmuP4MagicEatText(thunderFinal, iceFinal)}${moveText}`;
   rel.sent = true;
   rel.message = message;
   return myDmuSendP4BuffChat(data, `p4-magic-release:${st.storeCount}:${source ?? ''}`, message);
@@ -2451,6 +2629,8 @@ const myDmuP4MagicRecordReleaseMarker = (data, matches, source) => {
 const myDmuP4MagicReleaseChannel = (data, matches, source) => {
   if (data.myDmuPhase !== 'p4')
     return false;
+  data.myDmuP4.lateSpell ??= {};
+  data.myDmuP4.lateSpell.releaseSeen = true;
   const st = myDmuP4MagicEnsureStorage(data);
   let rel = st.release;
   const now = Date.now();
@@ -3500,6 +3680,7 @@ Options.Triggers.push({
           return myDmuP4MagicBeginStorage(data, matches);
         if (id === myDmuP4MagicReleaseId)
           return myDmuP4MagicReleaseChannel(data, matches, 'starts-using');
+        myDmuRecordP4LateSpell(data, matches);
         return myDmuP4MagicRecordStorageSpell(data, matches);
       },
     },
@@ -3512,6 +3693,7 @@ Options.Triggers.push({
         const id = matches.id.toUpperCase();
         if (id === myDmuP4MagicReleaseId)
           return myDmuP4MagicReleaseChannel(data, matches, 'ability');
+        myDmuRecordP4LateSpell(data, matches);
         return myDmuP4MagicRecordStorageSpell(data, matches);
       },
     },
