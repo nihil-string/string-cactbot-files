@@ -411,6 +411,22 @@ const myDmuNumber = (value) => {
   return Number.isFinite(num) ? num : undefined;
 };
 
+const myDmuNormalizeActorId = (value) => {
+  if (value === undefined || value === null)
+    return undefined;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0)
+      return undefined;
+    return Math.trunc(value).toString(16).toUpperCase().padStart(8, '0');
+  }
+  const text = value.toString().trim();
+  if (text === '' || text === '0' || text.toUpperCase() === 'E0000000')
+    return undefined;
+  if (/^\d+$/u.test(text) && text.length > 8)
+    return Number.parseInt(text, 10).toString(16).toUpperCase().padStart(8, '0');
+  return text.toUpperCase().padStart(8, '0');
+};
+
 const myDmuRetryAction = (action, count = 6, intervalMs = 500) => {
   if (action())
     return;
@@ -476,6 +492,37 @@ const myDmuP3FirewallWrongTargetText = (data, matches) => {
   if (correct === undefined)
     return undefined;
   return `打错目标：${correct}`;
+};
+
+const myDmuCombatantTargetId = (combatant) =>
+  myDmuNormalizeActorId(
+    combatant?.TargetID ??
+    combatant?.TargetId ??
+    combatant?.targetID ??
+    combatant?.PCTargetID ??
+    combatant?.NPCTargetID,
+  );
+
+const myDmuUpdateSelectedTargetId = async (data) => {
+  data.myDmuP3FirewallSelectedTargetId = undefined;
+  if (typeof callOverlayHandler !== 'function')
+    return;
+  try {
+    const result = await callOverlayHandler({ call: 'getCombatants' });
+    const combatants = result?.combatants ?? [];
+    const me = combatants.find((combatant) => combatant?.Name === data.me);
+    data.myDmuP3FirewallSelectedTargetId = myDmuCombatantTargetId(me);
+  } catch (_err) {
+    data.myDmuP3FirewallSelectedTargetId = undefined;
+  }
+};
+
+const myDmuP3FirewallSelectedWrongTargetText = (data, matches) => {
+  const selectedTargetId = data.myDmuP3FirewallSelectedTargetId;
+  const hitTargetId = myDmuNormalizeActorId(matches.targetId);
+  if (selectedTargetId === undefined || hitTargetId === undefined || selectedTargetId !== hitTargetId)
+    return undefined;
+  return myDmuP3FirewallWrongTargetText(data, matches);
 };
 
 const myDmuP5SymphonyInfo = (effectId) =>
@@ -3685,10 +3732,10 @@ Options.Triggers.push({
         data.myDmuPhase === 'p3' &&
         myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true) &&
         myDmuP3FirewallWrongTargetText(data, matches) !== undefined,
+      promise: async (data) => myDmuUpdateSelectedTargetId(data),
       durationSeconds: 3,
-      suppressSeconds: 3,
       alarmText: (data, matches) =>
-        myDmuCacheSpeech(data, 'p3FirewallWrongTarget', myDmuP3FirewallWrongTargetText(data, matches)),
+        myDmuCacheSpeech(data, 'p3FirewallWrongTarget', myDmuP3FirewallSelectedWrongTargetText(data, matches)),
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p3FirewallWrongTarget'),
