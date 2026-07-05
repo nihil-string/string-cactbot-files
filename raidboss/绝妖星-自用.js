@@ -3158,6 +3158,7 @@ Options.Triggers.push({
         data.myDmuPhase = myDmuPhaseStarts[matches.id] ?? data.myDmuPhase;
         if (data.myDmuPhase === 'p1') {
           myDmuResetP1(data);
+          myDmuClearMarks(data);
         } else if (data.myDmuPhase === 'p2') {
           myDmuResetP2(data);
           myDmuClearMarks(data);
