@@ -488,6 +488,20 @@ const myDmuCacheSpeech = (data, key, text) => {
   return text;
 };
 
+const myDmuClearCachedSpeech = (data, key) => {
+  if (data.myDmuSpeech !== undefined)
+    delete data.myDmuSpeech[key];
+};
+
+const myDmuP3BlackHoleText = (data, entry) => {
+  const key = `p3BlackHole${entry.id}`;
+  if (data.myDmuPhase !== 'p3' || !myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true)) {
+    myDmuClearCachedSpeech(data, key);
+    return undefined;
+  }
+  return myDmuCacheSpeech(data, key, entry.text);
+};
+
 const myDmuSpeakText = (data, text) => {
   if (!myDmuForceTtsEnabled(data) || text === undefined || text === null || text === '')
     return;
@@ -4072,7 +4086,7 @@ Options.Triggers.push({
       delaySeconds: Math.max(entry.time / 1000 - 0.25, 0),
       durationSeconds: Math.max(entry.duration / 1000 - 0.5, 1),
       suppressSeconds: 30,
-      infoText: (data) => myDmuCacheSpeech(data, `p3BlackHole${entry.id}`, entry.text),
+      infoText: (data) => myDmuP3BlackHoleText(data, entry),
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, `p3BlackHole${entry.id}`),
@@ -4459,7 +4473,7 @@ Options.Triggers.push({
     {
       id: '绝妖星 P5 魔击计数',
       type: 'Ability',
-      netRegex: { id: 'C654', capture: false },
+      netRegex: { id: 'C652', capture: false },
       condition: (data) => myDmuP5CalloutEnabled(data),
       durationSeconds: 3,
       suppressSeconds: 1,
