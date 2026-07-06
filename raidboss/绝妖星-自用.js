@@ -173,6 +173,28 @@ const myDmuP3ElementDebuffs = {
   '642': { kind: 'wind', text: '背对BOSS' },
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
+const myDmuP3BlackHoleTimeline = [
+  { id: 'step1', time: 3326, text: '回中间，攻击1接', duration: 4640 },
+  { id: 'step2', time: 7966, text: '攻击2准备', duration: 2582 },
+  { id: 'step3', time: 10548, text: '攻击2接，准备暴雷', duration: 8452 },
+  { id: 'step4', time: 19000, text: '准备半场加耳光', duration: 10000 },
+  { id: 'step5', time: 29000, text: '攻击准备', duration: 4745 },
+  { id: 'step6', time: 33745, text: '攻击接', duration: 5255 },
+  { id: 'step7', time: 39000, text: '锁链1准备', duration: 2662 },
+  { id: 'step8', time: 41662, text: '锁链1替攻击1', duration: 2338 },
+  { id: 'step9', time: 44000, text: '锁链2准备', duration: 3000 },
+  { id: 'step10', time: 47000, text: '锁链2替攻击2，准备半场两侧暴雷', duration: 17000 },
+  { id: 'step11', time: 64000, text: '锁链准备', duration: 4762 },
+  { id: 'step12', time: 68762, text: '锁链接', duration: 3238 },
+  { id: 'step13', time: 72000, text: '禁止1准备', duration: 3000 },
+  { id: 'step14', time: 75000, text: '禁止1替锁链1', duration: 4000 },
+  { id: 'step15', time: 79000, text: '禁止2准备', duration: 2000 },
+  { id: 'step16', time: 81000, text: '禁止2替锁链2', duration: 8000 },
+  { id: 'step17', time: 83000, text: '准备白洞经纬耳光', duration: 16500 },
+  { id: 'step18', time: 99500, text: '禁止2准备', duration: 2500 },
+  { id: 'step19', time: 102000, text: '禁止2接两根', duration: 7000 },
+  { id: 'step20', time: 109000, text: '禁止1接', duration: 6000 },
+];
 
 const myDmuP4TruthHeadmarkers = {
   '02A3': { target: 'chaos', value: false },
@@ -198,6 +220,7 @@ const myDmuP4MandarinDuckBuffs = [
   ...myDmuP4MandarinDuckFateBuffs,
 ];
 const myDmuP4WhiteAntilightId = 'C394';
+const myDmuP4FloodIds = ['C3A1', 'C3A2', 'C392', 'C393'];
 const myDmuP4PersonalActionBuffs = [
   ...myDmuP4ElementBuffs,
   myDmuP4PetrifyBuff,
@@ -302,6 +325,28 @@ const myDmuP5SymphonyBuffs = {
     text: '分摊死刑，挑衅，站在目标圈',
   },
 };
+const myDmuP5FloodPatterns = {
+  '82.292|89.372|0.785': ['A', 'B'],
+  '124.743|96.452|-0.785': ['B', 'A'],
+  '110.582|82.292|-0.785': ['B', 'C'],
+  '89.372|82.292|0.785': ['C', 'B'],
+  '75.242|96.452|0.785': ['C', 'D'],
+  '117.662|89.372|-0.785': ['D', 'C'],
+  '103.532|75.242|-0.785': ['D', 'A'],
+  '96.452|75.242|0.785': ['A', 'D'],
+};
+const myDmuP5TrioBuffs = {
+  B56: '火',
+  BB6: '雷',
+  B57: '冰',
+};
+const myDmuP5TrioTowerElements = {
+  '1EC03E': '火',
+  '1EC03F': '冰',
+  '1EC040': '雷',
+};
+const myDmuP5TrioPositions = ['左上', '右上', '下'];
+const myDmuP5MagicHitSequence = [3, 2, 1, 2, 1, 2, 1, 3, 2, 1];
 
 const myDmuP5MitigationText = (entry) => {
   const parts = [`${entry.skill}减伤`];
@@ -460,6 +505,13 @@ const myDmuSpeakCached = (data, key) => {
   return text;
 };
 
+const myDmuActLog = (message, detail) => {
+  if (globalThis.console?.log === undefined)
+    return;
+  const suffix = detail === undefined ? '' : ` ${JSON.stringify(detail)}`;
+  console.log(`[String][DMU] ${message}${suffix}`);
+};
+
 const myDmuP3FirewallInfo = (effectId) =>
   myDmuP3FirewallEffects[effectId?.toString().toUpperCase()];
 
@@ -531,7 +583,240 @@ const myDmuP5SymphonyInfo = (effectId) =>
 const myDmuEnsureP5State = (data) => {
   data.myDmuP5 ??= {};
   data.myDmuP5.symphonyCrowdTargets ??= [];
+  data.myDmuP5.floods ??= [];
+  data.myDmuP5.trioBuffs ??= [];
+  data.myDmuP5.trioTowers ??= [];
+  data.myDmuP5.trioLitTowers ??= [];
+  data.myDmuP5.trioPending ??= [];
+  data.myDmuP5.trioCount ??= 0;
+  data.myDmuP5.magicHitCount ??= 0;
+  data.myDmuP5.softEnrageStep ??= 0;
   return data.myDmuP5;
+};
+
+const myDmuP5FloodKey = (matches) => {
+  const x = myDmuNumber(matches.x);
+  const y = myDmuNumber(matches.y) ?? myDmuNumber(matches.z);
+  const heading = myDmuNumber(matches.heading);
+  if (x === undefined || y === undefined || heading === undefined)
+    return undefined;
+  return `${x.toFixed(3)}|${y.toFixed(3)}|${heading.toFixed(3)}`;
+};
+
+const myDmuRecordP5Flood = (data, matches) => {
+  const state = myDmuEnsureP5State(data);
+  const key = myDmuP5FloodKey(matches);
+  if (key === undefined) {
+    myDmuActLog('P5 洪水缺少坐标或朝向', matches);
+    return;
+  }
+  if (state.floods.length >= 4)
+    state.floods = [];
+  if (state.floods.some((entry) => entry.key === key))
+    return;
+  state.floods.push({
+    key: key,
+    x: myDmuNumber(matches.x),
+    y: myDmuNumber(matches.y) ?? myDmuNumber(matches.z),
+  });
+};
+
+const myDmuP5FloodText = (data) => {
+  const state = myDmuEnsureP5State(data);
+  if (state.floods.length < 4)
+    return undefined;
+  const records = [...state.floods].sort((left, right) => (left.y ?? 0) - (right.y ?? 0) || (left.x ?? 0) - (right.x ?? 0));
+  const first = [...records.slice(0, 2)].sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
+  const second = [...records.slice(2, 4)].sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
+  const firstPattern = myDmuP5FloodPatterns[first[0]?.key];
+  const secondPattern = myDmuP5FloodPatterns[second[0]?.key];
+  if (firstPattern === undefined || secondPattern === undefined) {
+    myDmuActLog('P5 洪水坐标无法识别', { first: first[0]?.key, second: second[0]?.key });
+    return undefined;
+  }
+  const start = firstPattern.find((point) => secondPattern.includes(point));
+  const other = firstPattern.find((point) => point !== start);
+  if (start === undefined || other === undefined) {
+    myDmuActLog('P5 洪水方向无法推导', { firstPattern, secondPattern });
+    return undefined;
+  }
+  const startIndex = ['A', 'B', 'C', 'D'].indexOf(start);
+  const otherIndex = ['A', 'B', 'C', 'D'].indexOf(other);
+  const direction = ((startIndex - otherIndex + 4) % 4) === 1 ? '左' : '右';
+  state.floods = [];
+  return `${start}，${direction}`;
+};
+
+const myDmuRecordP5TrioBuff = (data, matches) => {
+  const state = myDmuEnsureP5State(data);
+  const effectId = matches.effectId?.toString().toUpperCase();
+  const element = myDmuP5TrioBuffs[effectId];
+  if (element === undefined)
+    return;
+  const key = matches.targetId ?? matches.target;
+  if (key === undefined)
+    return;
+  if (state.trioBuffs.some((entry) => entry.key === key && entry.element === element))
+    return;
+  state.trioBuffs.push({
+    key: key,
+    id: myDmuNormalizeActorId(matches.targetId),
+    name: matches.target,
+    element: element,
+  });
+};
+
+const myDmuP5TrioTowerPosition = (matches) => {
+  const x = myDmuNumber(matches.pairPosX) ?? myDmuNumber(matches.x);
+  const y = myDmuNumber(matches.pairPosY) ?? myDmuNumber(matches.y) ?? myDmuNumber(matches.z);
+  if (x === undefined || y === undefined)
+    return undefined;
+  const centers = [
+    { position: '左上', x: 93, y: 96 },
+    { position: '右上', x: 107, y: 96 },
+    { position: '下', x: 100, y: 109 },
+  ];
+  centers.sort((left, right) => {
+    const leftDistance = (x - left.x) ** 2 + (y - left.y) ** 2;
+    const rightDistance = (x - right.x) ** 2 + (y - right.y) ** 2;
+    return leftDistance - rightDistance;
+  });
+  return centers[0]?.position;
+};
+
+const myDmuRecordP5TrioTower = (data, matches) => {
+  const state = myDmuEnsureP5State(data);
+  const bNpcId = matches.pairBNpcID?.toString().toUpperCase() ?? matches.bNpcId?.toString().toUpperCase();
+  const element = myDmuP5TrioTowerElements[bNpcId];
+  const position = myDmuP5TrioTowerPosition(matches);
+  const key = matches.id ?? matches.pairId ?? `${bNpcId}:${matches.pairPosX ?? matches.x}:${matches.pairPosY ?? matches.y}`;
+  if (element === undefined || position === undefined) {
+    myDmuActLog('P5 三星塔资料不足', matches);
+    return;
+  }
+  if (state.trioTowers.some((entry) => entry.key === key))
+    return;
+  state.trioTowers.push({
+    key: key,
+    element: element,
+    position: position,
+  });
+};
+
+const myDmuP5TrioGroups = (data) => {
+  const state = myDmuEnsureP5State(data);
+  const groups = Object.fromEntries(myDmuP5TrioPositions.map((position) => [position, []]));
+  for (const tower of state.trioTowers) {
+    groups[tower.position] ??= [];
+    groups[tower.position].push(tower);
+  }
+  for (const towers of Object.values(groups))
+    towers.sort((left, right) => left.element.localeCompare(right.element, 'zh-Hans') || left.key.localeCompare(right.key));
+  return groups;
+};
+
+const myDmuP5NextTrioPosition = (position) => {
+  const index = myDmuP5TrioPositions.indexOf(position);
+  if (index < 0)
+    return undefined;
+  return myDmuP5TrioPositions[(index + 1) % myDmuP5TrioPositions.length];
+};
+
+const myDmuP5TrioOwnBuff = (data) => {
+  const state = myDmuEnsureP5State(data);
+  return state.trioBuffs.find((entry) =>
+    entry.name === data.me ||
+    entry.id === myDmuNormalizeActorId(data.myId) ||
+    entry.id === myDmuNormalizeActorId(data.myHexId));
+};
+
+const myDmuP5TrioText = (position, element, count) => `${position}找${element}${count}`;
+
+const myDmuP5TrioOwnText = (data) => {
+  const state = myDmuEnsureP5State(data);
+  if (state.trioCount >= 3)
+    return undefined;
+  const ownBuff = myDmuP5TrioOwnBuff(data);
+  if (ownBuff === undefined) {
+    state.trioIdle = true;
+    state.trioCount = 1;
+    return '闲人';
+  }
+  const groups = myDmuP5TrioGroups(data);
+  const basePosition = myDmuP5TrioPositions.find((position) =>
+    groups[position]?.some((tower) => tower.element === ownBuff.element));
+  if (basePosition === undefined) {
+    myDmuActLog('P5 三星找不到自己元素塔', { element: ownBuff.element, towers: state.trioTowers });
+    return undefined;
+  }
+  const firstPosition = myDmuP5NextTrioPosition(basePosition);
+  const secondPosition = myDmuP5NextTrioPosition(firstPosition);
+  const thirdPosition = myDmuP5NextTrioPosition(secondPosition);
+  if (firstPosition === undefined || secondPosition === undefined || thirdPosition === undefined)
+    return undefined;
+  state.trioPending = [
+    myDmuP5TrioText(secondPosition, groups[secondPosition]?.[0]?.element ?? ownBuff.element, 2),
+    myDmuP5TrioText(thirdPosition, groups[thirdPosition]?.[0]?.element ?? ownBuff.element, 3),
+  ];
+  state.trioCount = 1;
+  return myDmuP5TrioText(firstPosition, groups[firstPosition]?.[0]?.element ?? ownBuff.element, 1);
+};
+
+const myDmuP5TrioNextText = (data) => {
+  const state = myDmuEnsureP5State(data);
+  if (state.trioIdle)
+    return undefined;
+  const text = state.trioPending.shift();
+  if (text === undefined)
+    return undefined;
+  state.trioCount++;
+  return text;
+};
+
+const myDmuP5TrioChoiceText = (data, matches) => {
+  const action = matches.id?.toString().toUpperCase() === 'C24E' ? '钢铁' : '月环';
+  const next = myDmuP5TrioNextText(data);
+  return next === undefined ? action : `${action}，${next}`;
+};
+
+const myDmuRecordP5TrioLitTower = (data, matches) => {
+  const state = myDmuEnsureP5State(data);
+  const key = matches.id ?? matches.param5 ?? matches.param6 ?? matches.sourceId ?? matches.targetId;
+  if (key === undefined)
+    return;
+  if (!state.trioLitTowers.includes(key))
+    state.trioLitTowers.push(key);
+};
+
+const myDmuP5TrioIdleTowerText = (data) => {
+  const state = myDmuEnsureP5State(data);
+  if (!state.trioIdle || state.trioLitTowers.length < 2)
+    return undefined;
+  const lit = new Set(state.trioLitTowers);
+  const groups = myDmuP5TrioGroups(data);
+  for (const position of myDmuP5TrioPositions) {
+    const towers = groups[position] ?? [];
+    const litTowers = towers.filter((tower) => lit.has(tower.key));
+    if (litTowers.length >= 2) {
+      state.trioLitTowers = [];
+      return myDmuP5TrioText(position, litTowers[0]?.element ?? towers[0]?.element ?? '塔', 2);
+    }
+  }
+  myDmuActLog('P5 三星闲人亮塔无法匹配', { lit: state.trioLitTowers, towers: state.trioTowers });
+  return undefined;
+};
+
+const myDmuP5MagicHitText = (data) => {
+  const state = myDmuEnsureP5State(data);
+  const expectedHits = myDmuP5MagicHitSequence[state.magicHitCount] ?? 1;
+  state.magicHitCount++;
+  return expectedHits <= 1 ? '最后一下' : `还有${expectedHits - 1}下`;
+};
+
+const myDmuP5SoftEnrageStopText = (data) => {
+  const state = myDmuEnsureP5State(data);
+  state.softEnrageStep++;
+  return state.softEnrageStep >= 4 ? '结束' : '停';
 };
 
 const myDmuRecordP5CrowdHoly = (data, matches) => {
@@ -1031,6 +1316,15 @@ const myDmuResetP5 = (data) => {
     scholarShieldCount: 0,
     symphonyCrowdTargets: [],
     symphonyCrowdLastSize: 0,
+    floods: [],
+    trioBuffs: [],
+    trioTowers: [],
+    trioLitTowers: [],
+    trioPending: [],
+    trioCount: 0,
+    trioIdle: false,
+    magicHitCount: 0,
+    softEnrageStep: 0,
   };
 };
 
@@ -2484,6 +2778,21 @@ const myDmuTrySendP4MandarinDuckChats = (data) => {
   return true;
 };
 
+const myDmuP4NoFloodText = (data) => {
+  const st = data.myDmuP4?.mandarinDuck ?? {};
+  if (st.goTruePurple === undefined || st.truePurpleLeft === undefined || data.myDmuP4?.truth?.ex === undefined) {
+    myDmuActLog('P4 无之泛滥资料不足', {
+      goTruePurple: st.goTruePurple,
+      truePurpleLeft: st.truePurpleLeft,
+      exTruth: data.myDmuP4?.truth?.ex,
+    });
+    return undefined;
+  }
+  const goLeft = st.truePurpleLeft === st.goTruePurple;
+  const rawPurple = data.myDmuP4.truth.ex === st.goTruePurple;
+  return `鸳鸯锅：${goLeft ? '左' : '右'}侧${rawPurple ? '紫' : '蓝'}色半场`;
+};
+
 const myDmuRecordP4LateSpell = (data, matches) => {
   if (data.myDmuPhase !== 'p4' || data.myDmuP4.mandarinDuck?.seenAntilight !== true)
     return false;
@@ -3753,6 +4062,53 @@ Options.Triggers.push({
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p3BowelsOfAgony'),
     },
+    ...myDmuP3BlackHoleTimeline.map((entry) => ({
+      id: `绝妖星 P3 黑洞接线 ${entry.id}`,
+      type: 'Ability',
+      netRegex: { id: 'BAFB', capture: false },
+      condition: (data) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      delaySeconds: Math.max(entry.time / 1000 - 0.25, 0),
+      durationSeconds: Math.max(entry.duration / 1000 - 0.5, 1),
+      suppressSeconds: 30,
+      infoText: (data) => myDmuCacheSpeech(data, `p3BlackHole${entry.id}`, entry.text),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, `p3BlackHole${entry.id}`),
+    })),
+    {
+      id: '绝妖星 P3 简易打铁警察',
+      type: 'Ability',
+      netRegex: { targetId: '4.{7}', capture: true },
+      condition: (data, matches) => {
+        if (data.myDmuPhase !== 'p3' || !myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true))
+          return false;
+        if (matches.targetIndex !== undefined && matches.targetIndex !== '0')
+          return false;
+        if (Number.parseInt(matches.damage ?? '0', 16) !== 0)
+          return false;
+        const flags = Number.parseInt(matches.flags ?? '0', 16);
+        if (!Number.isFinite(flags) || (flags & 0xFF) !== 7)
+          return false;
+        if (matches.source === data.me)
+          return true;
+        return myDmuPartyNames(data).includes(matches.source);
+      },
+      durationSeconds: 3,
+      infoText: (data, matches) => {
+        const role = myDmuGetRpByName(data, matches.source) ?? matches.source;
+        const ability = matches.ability ?? matches.id ?? '技能';
+        if (matches.source !== data.me) {
+          myDmuActLog('P3 打铁警察', { role, source: matches.source, ability });
+          return undefined;
+        }
+        return myDmuCacheSpeech(data, 'p3Blacksmith', `打铁成功：${ability}`);
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3Blacksmith'),
+    },
     {
       id: '绝妖星 P3 麻将头标',
       type: 'HeadMarker',
@@ -3923,6 +4279,20 @@ Options.Triggers.push({
       },
     },
     {
+      id: '绝妖星 P4 无之泛滥',
+      type: 'StartsUsing',
+      netRegex: { id: myDmuP4FloodIds, capture: false },
+      condition: (data) =>
+        data.myDmuPhase === 'p4' &&
+        myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true),
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuCacheSpeech(data, 'p4NoFlood', myDmuP4NoFloodText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4NoFlood'),
+    },
+    {
       id: '绝妖星 P4 Buff 缓存与元素标点',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4TrackedBuffs, capture: true },
@@ -4009,6 +4379,142 @@ Options.Triggers.push({
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p5CrowdHoly'),
+    },
+    {
+      id: '绝妖星 P5 洪水方向',
+      type: 'StartsUsingExtra',
+      netRegex: { id: 'C183', capture: true },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      preRun: (data, matches) => myDmuRecordP5Flood(data, matches),
+      durationSeconds: 7,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5Flood', myDmuP5FloodText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5Flood'),
+    },
+    {
+      id: '绝妖星 P5 三星塔记录',
+      type: 'CombatantMemory',
+      netRegex: {
+        change: 'Add',
+        pair: [{ key: 'BNpcID', value: Object.keys(myDmuP5TrioTowerElements) }],
+        capture: true,
+      },
+      condition: (data) => data.myDmuPhase === 'p5',
+      preRun: (data, matches) => myDmuRecordP5TrioTower(data, matches),
+    },
+    {
+      id: '绝妖星 P5 三星Buff记录',
+      type: 'GainsEffect',
+      netRegex: { effectId: Object.keys(myDmuP5TrioBuffs), capture: true },
+      condition: (data) => data.myDmuPhase === 'p5',
+      preRun: (data, matches) => myDmuRecordP5TrioBuff(data, matches),
+    },
+    {
+      id: '绝妖星 P5 三星行动',
+      type: 'GainsEffect',
+      netRegex: { effectId: Object.keys(myDmuP5TrioBuffs), capture: true },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      delaySeconds: 0.5,
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5TrioFirst', myDmuP5TrioOwnText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5TrioFirst'),
+    },
+    {
+      id: '绝妖星 P5 三星钢月',
+      type: 'StartsUsing',
+      netRegex: { id: ['C24E', 'C24F'], capture: true },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data, matches) =>
+        myDmuCacheSpeech(data, `p5TrioChoice${matches.id}`, myDmuP5TrioChoiceText(data, matches)),
+      tts: null,
+      soundVolume: 0,
+      run: (data, matches) => myDmuSpeakCached(data, `p5TrioChoice${matches.id}`),
+    },
+    {
+      id: '绝妖星 P5 三星亮塔收集',
+      type: 'ActorControlExtra',
+      netRegex: { category: '019D', param1: '10', param2: '20', param3: '0', param4: '0', capture: true },
+      condition: (data) => data.myDmuPhase === 'p5',
+      preRun: (data, matches) => myDmuRecordP5TrioLitTower(data, matches),
+    },
+    {
+      id: '绝妖星 P5 三星闲人塔',
+      type: 'ActorControlExtra',
+      netRegex: { category: '019D', param1: '10', param2: '20', param3: '0', param4: '0', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      delaySeconds: 0.2,
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5TrioIdleTower', myDmuP5TrioIdleTowerText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5TrioIdleTower'),
+    },
+    {
+      id: '绝妖星 P5 魔击计数',
+      type: 'Ability',
+      netRegex: { id: 'C654', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      durationSeconds: 3,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5MagicHit', myDmuP5MagicHitText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5MagicHit'),
+    },
+    {
+      id: '绝妖星 P5 软狂暴集合',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB35', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      countdownSeconds: 9.7,
+      durationSeconds: 5,
+      alertText: (data) => myDmuCacheSpeech(data, 'p5SoftEnrageStack', '软狂暴集合'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5SoftEnrageStack'),
+    },
+    {
+      id: '绝妖星 P5 软狂暴走',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB38', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      countdownSeconds: 4.7,
+      durationSeconds: 3,
+      alertText: (data) => myDmuCacheSpeech(data, 'p5SoftEnrageMove', '走'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5SoftEnrageMove'),
+    },
+    {
+      id: '绝妖星 P5 软狂暴停',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB38', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      delaySeconds: 4.7,
+      durationSeconds: 3,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5SoftEnrageStop', myDmuP5SoftEnrageStopText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5SoftEnrageStop'),
+    },
+    {
+      id: '绝妖星 P5 狂暴',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB3A', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      countdownSeconds: 30,
+      durationSeconds: 5,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5Enrage', '狂暴'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5Enrage'),
     },
     {
       id: '绝妖星 P4 元素标点时机',
