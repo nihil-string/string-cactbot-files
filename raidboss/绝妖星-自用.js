@@ -174,26 +174,26 @@ const myDmuP3ElementDebuffs = {
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
 const myDmuP3BlackHoleTimeline = [
-  { id: 'step1', time: 3326, text: '回中间，攻击1接', duration: 4640 },
-  { id: 'step2', time: 7966, text: '攻击2准备', duration: 2582 },
-  { id: 'step3', time: 10548, text: '攻击2接，准备暴雷', duration: 8452 },
+  { id: 'step1', time: 3326, text: '回中间，第一组接线', duration: 4640 },
+  { id: 'step2', time: 7966, text: '下一组准备', duration: 2582 },
+  { id: 'step3', time: 10548, text: '第二组接线，准备暴雷', duration: 8452 },
   { id: 'step4', time: 19000, text: '准备半场加耳光', duration: 10000 },
-  { id: 'step5', time: 29000, text: '攻击准备', duration: 4745 },
-  { id: 'step6', time: 33745, text: '攻击接', duration: 5255 },
-  { id: 'step7', time: 39000, text: '锁链1准备', duration: 2662 },
-  { id: 'step8', time: 41662, text: '锁链1替攻击1', duration: 2338 },
-  { id: 'step9', time: 44000, text: '锁链2准备', duration: 3000 },
-  { id: 'step10', time: 47000, text: '锁链2替攻击2，准备半场两侧暴雷', duration: 17000 },
-  { id: 'step11', time: 64000, text: '锁链准备', duration: 4762 },
-  { id: 'step12', time: 68762, text: '锁链接', duration: 3238 },
-  { id: 'step13', time: 72000, text: '禁止1准备', duration: 3000 },
-  { id: 'step14', time: 75000, text: '禁止1替锁链1', duration: 4000 },
-  { id: 'step15', time: 79000, text: '禁止2准备', duration: 2000 },
-  { id: 'step16', time: 81000, text: '禁止2替锁链2', duration: 8000 },
+  { id: 'step5', time: 29000, text: '下一组准备', duration: 4745 },
+  { id: 'step6', time: 33745, text: '第三组接线', duration: 5255 },
+  { id: 'step7', time: 39000, text: '替线组准备', duration: 2662 },
+  { id: 'step8', time: 41662, text: '第一组替线', duration: 2338 },
+  { id: 'step9', time: 44000, text: '替线组准备', duration: 3000 },
+  { id: 'step10', time: 47000, text: '第二组替线，准备半场两侧暴雷', duration: 17000 },
+  { id: 'step11', time: 64000, text: '下一组准备', duration: 4762 },
+  { id: 'step12', time: 68762, text: '下一组接线', duration: 3238 },
+  { id: 'step13', time: 72000, text: '替线组准备', duration: 3000 },
+  { id: 'step14', time: 75000, text: '第三组替线', duration: 4000 },
+  { id: 'step15', time: 79000, text: '替线组准备', duration: 2000 },
+  { id: 'step16', time: 81000, text: '第四组替线', duration: 8000 },
   { id: 'step17', time: 83000, text: '准备白洞经纬耳光', duration: 16500 },
-  { id: 'step18', time: 99500, text: '禁止2准备', duration: 2500 },
-  { id: 'step19', time: 102000, text: '禁止2接两根', duration: 7000 },
-  { id: 'step20', time: 109000, text: '禁止1接', duration: 6000 },
+  { id: 'step18', time: 99500, text: '最后接线准备', duration: 2500 },
+  { id: 'step19', time: 102000, text: '当前组接两根', duration: 7000 },
+  { id: 'step20', time: 109000, text: '最后一组接线', duration: 6000 },
 ];
 
 const myDmuP4TruthHeadmarkers = {
@@ -603,9 +603,21 @@ const myDmuEnsureP5State = (data) => {
   data.myDmuP5.trioLitTowers ??= [];
   data.myDmuP5.trioPending ??= [];
   data.myDmuP5.trioCount ??= 0;
+  data.myDmuP5.trioFirstAnnounced ??= false;
   data.myDmuP5.magicHitCount ??= 0;
   data.myDmuP5.softEnrageStep ??= 0;
   return data.myDmuP5;
+};
+
+const myDmuResetP5Trio = (data) => {
+  const state = myDmuEnsureP5State(data);
+  state.trioBuffs = [];
+  state.trioTowers = [];
+  state.trioLitTowers = [];
+  state.trioPending = [];
+  state.trioCount = 0;
+  state.trioIdle = false;
+  state.trioFirstAnnounced = false;
 };
 
 const myDmuP5FloodKey = (matches) => {
@@ -748,12 +760,13 @@ const myDmuP5TrioText = (position, element, count) => `${position}找${element}$
 
 const myDmuP5TrioOwnText = (data) => {
   const state = myDmuEnsureP5State(data);
-  if (state.trioCount >= 3)
+  if (state.trioFirstAnnounced || state.trioCount >= 3)
     return undefined;
   const ownBuff = myDmuP5TrioOwnBuff(data);
   if (ownBuff === undefined) {
     state.trioIdle = true;
     state.trioCount = 1;
+    state.trioFirstAnnounced = true;
     return '闲人';
   }
   const groups = myDmuP5TrioGroups(data);
@@ -773,6 +786,7 @@ const myDmuP5TrioOwnText = (data) => {
     myDmuP5TrioText(thirdPosition, groups[thirdPosition]?.[0]?.element ?? ownBuff.element, 3),
   ];
   state.trioCount = 1;
+  state.trioFirstAnnounced = true;
   return myDmuP5TrioText(firstPosition, groups[firstPosition]?.[0]?.element ?? ownBuff.element, 1);
 };
 
@@ -1337,6 +1351,7 @@ const myDmuResetP5 = (data) => {
     trioPending: [],
     trioCount: 0,
     trioIdle: false,
+    trioFirstAnnounced: false,
     magicHitCount: 0,
     softEnrageStep: 0,
   };
@@ -4113,15 +4128,16 @@ Options.Triggers.push({
       infoText: (data, matches) => {
         const role = myDmuGetRpByName(data, matches.source) ?? matches.source;
         const ability = matches.ability ?? matches.id ?? '技能';
-        if (matches.source !== data.me) {
-          myDmuActLog('P3 打铁警察', { role, source: matches.source, ability });
-          return undefined;
-        }
-        return myDmuCacheSpeech(data, 'p3Blacksmith', `打铁成功：${ability}`);
+        myDmuActLog('P3 打铁警察', {
+          role,
+          source: matches.source,
+          ability,
+          self: matches.source === data.me,
+        });
+        return undefined;
       },
       tts: null,
       soundVolume: 0,
-      run: (data) => myDmuSpeakCached(data, 'p3Blacksmith'),
     },
     {
       id: '绝妖星 P3 麻将头标',
@@ -4405,6 +4421,13 @@ Options.Triggers.push({
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p5Flood'),
+    },
+    {
+      id: '绝妖星 P5 三星状态重置',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB42', capture: false },
+      condition: (data) => data.myDmuPhase === 'p5',
+      run: (data) => myDmuResetP5Trio(data),
     },
     {
       id: '绝妖星 P5 三星塔记录',
