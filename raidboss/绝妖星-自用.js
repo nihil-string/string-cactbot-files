@@ -174,26 +174,26 @@ const myDmuP3ElementDebuffs = {
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
 const myDmuP3BlackHoleTimeline = [
-  { id: 'step1', time: 3326, text: '回中间，第一组接线', duration: 4640 },
-  { id: 'step2', time: 7966, text: '下一组准备', duration: 2582 },
-  { id: 'step3', time: 10548, text: '第二组接线，准备暴雷', duration: 8452 },
+  { id: 'step1', time: 3326, text: '回中间，攻击1接', duration: 4640 },
+  { id: 'step2', time: 6500, text: '攻击2准备', duration: 6200 },
+  { id: 'step3', time: 13200, text: '攻击2接，准备暴雷', duration: 9000 },
   { id: 'step4', time: 19000, text: '准备半场加耳光', duration: 10000 },
-  { id: 'step5', time: 29000, text: '下一组准备', duration: 4745 },
-  { id: 'step6', time: 33745, text: '第三组接线', duration: 5255 },
-  { id: 'step7', time: 39000, text: '替线组准备', duration: 2662 },
-  { id: 'step8', time: 41662, text: '第一组替线', duration: 2338 },
-  { id: 'step9', time: 44000, text: '替线组准备', duration: 3000 },
-  { id: 'step10', time: 47000, text: '第二组替线，准备半场两侧暴雷', duration: 17000 },
-  { id: 'step11', time: 64000, text: '下一组准备', duration: 4762 },
-  { id: 'step12', time: 68762, text: '下一组接线', duration: 3238 },
-  { id: 'step13', time: 72000, text: '替线组准备', duration: 3000 },
-  { id: 'step14', time: 75000, text: '第三组替线', duration: 4000 },
-  { id: 'step15', time: 79000, text: '替线组准备', duration: 2000 },
-  { id: 'step16', time: 81000, text: '第四组替线', duration: 8000 },
+  { id: 'step5', time: 33500, text: '攻击准备', duration: 2900 },
+  { id: 'step6', time: 36400, text: '攻击接', duration: 3000 },
+  { id: 'step7', time: 39500, text: '锁链1准备', duration: 1950 },
+  { id: 'step8', time: 41450, text: '锁链1替攻击1', duration: 3000 },
+  { id: 'step9', time: 44500, text: '锁链2准备', duration: 2300 },
+  { id: 'step10', time: 46800, text: '锁链2替攻击2，准备半场两侧暴雷', duration: 17000 },
+  { id: 'step11', time: 67500, text: '锁链准备', duration: 3200 },
+  { id: 'step12', time: 70650, text: '锁链接', duration: 3500 },
+  { id: 'step13', time: 74200, text: '禁止1准备', duration: 1800 },
+  { id: 'step14', time: 75750, text: '禁止1替锁链1', duration: 3500 },
+  { id: 'step15', time: 79200, text: '禁止2准备', duration: 1800 },
+  { id: 'step16', time: 80750, text: '禁止2替锁链2', duration: 8000 },
   { id: 'step17', time: 83000, text: '准备白洞经纬耳光', duration: 16500 },
-  { id: 'step18', time: 99500, text: '最后接线准备', duration: 2500 },
-  { id: 'step19', time: 102000, text: '当前组接两根', duration: 7000 },
-  { id: 'step20', time: 109000, text: '最后一组接线', duration: 6000 },
+  { id: 'step18', time: 102500, text: '禁止2准备', duration: 1800 },
+  { id: 'step19', time: 104500, text: '禁止2接两根', duration: 6500 },
+  { id: 'step20', time: 111000, text: '禁止1接', duration: 6000 },
 ];
 
 const myDmuP4TruthHeadmarkers = {
@@ -589,6 +589,14 @@ const myDmuP3FirewallSelectedWrongTargetText = (data, matches) => {
   if (selectedTargetId === undefined || hitTargetId === undefined || selectedTargetId !== hitTargetId)
     return undefined;
   return myDmuP3FirewallWrongTargetText(data, matches);
+};
+
+const myDmuP3SelectedTargetHitText = (data, matches, text) => {
+  const selectedTargetId = data.myDmuP3FirewallSelectedTargetId;
+  const hitTargetId = myDmuNormalizeActorId(matches.targetId);
+  if (selectedTargetId === undefined || hitTargetId === undefined || selectedTargetId !== hitTargetId)
+    return undefined;
+  return text;
 };
 
 const myDmuP5SymphonyInfo = (effectId) =>
@@ -4125,9 +4133,19 @@ Options.Triggers.push({
         return myDmuPartyNames(data).includes(matches.source);
       },
       durationSeconds: 3,
+      promise: async (data, matches) => {
+        if (matches.source === data.me)
+          await myDmuUpdateSelectedTargetId(data);
+      },
       infoText: (data, matches) => {
         const role = myDmuGetRpByName(data, matches.source) ?? matches.source;
         const ability = matches.ability ?? matches.id ?? '技能';
+        if (matches.source === data.me)
+          return myDmuCacheSpeech(
+            data,
+            'p3Blacksmith',
+            myDmuP3SelectedTargetHitText(data, matches, `打铁成功：${ability}`),
+          );
         myDmuActLog('P3 打铁警察', {
           role,
           source: matches.source,
@@ -4138,6 +4156,7 @@ Options.Triggers.push({
       },
       tts: null,
       soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3Blacksmith'),
     },
     {
       id: '绝妖星 P3 麻将头标',
