@@ -2478,6 +2478,40 @@ const myDmuP4AccelerationActionText = (rec) => {
   return undefined;
 };
 
+const myDmuP4AccelerationGroupText = (records) => {
+  const sorted = [...records]
+    .filter((rec) => myDmuP4AccelerationActionText(rec) !== undefined)
+    .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
+  if (sorted.length === 0)
+    return undefined;
+  const staticRoles = sorted.filter((rec) => rec.truth === true).map((rec) => rec.role ?? rec.id ?? '?');
+  const movingRoles = sorted.filter((rec) => rec.truth === false).map((rec) => rec.role ?? rec.id ?? '?');
+  const staticText = staticRoles.length > 0 ? staticRoles.join(',') : '无';
+  const movingText = movingRoles.length > 0 ? movingRoles.join(',') : '无';
+  if (staticRoles.length > 0 && movingRoles.length === 0)
+    return `静：${staticText}`;
+  if (movingRoles.length > 0 && staticRoles.length === 0)
+    return `动：${movingText}`;
+  return `静：${staticText}；动：${movingText}`;
+};
+
+const myDmuP4AccelerationResolveRecords = (data, rec) => {
+  const records = myDmuP4RecordsFor(data, [myDmuP4AccelerationBuff])
+    .map((record) => {
+      myDmuP4RefreshRecordTruth(data, record);
+      return record;
+    })
+    .filter((record) => myDmuP4AccelerationActionText(record) !== undefined);
+  const expiresAt = myDmuP4RecordExpiresAt(rec);
+  if (typeof expiresAt !== 'number')
+    return records.filter((record) => record === rec);
+  const sameResolve = records.filter((record) => {
+    const recordExpiresAt = myDmuP4RecordExpiresAt(record);
+    return typeof recordExpiresAt === 'number' && Math.abs(recordExpiresAt - expiresAt) <= 1000;
+  });
+  return sameResolve.length > 0 ? sameResolve : records.filter((record) => record === rec);
+};
+
 const myDmuP4ChaosActionText = (rec) => {
   if (rec?.truth === undefined)
     return undefined;
@@ -2587,14 +2621,11 @@ const myDmuTrySendP4AccelerationGroupChat = (data) => {
       ready = false;
       return;
     }
-    cluster.entries.sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
-    const staticRoles = cluster.entries.filter((rec) => rec.truth === true).map((rec) => rec.role ?? rec.id ?? '?');
-    const movingRoles = cluster.entries.filter((rec) => rec.truth === false).map((rec) => rec.role ?? rec.id ?? '?');
-    const staticText = staticRoles.length > 0 ? staticRoles.join(',') : '无';
-    const movingText = movingRoles.length > 0 ? movingRoles.join(',') : '无';
-    const message = staticRoles.length > 0 && movingRoles.length === 0 ? `静：${staticText}` :
-      movingRoles.length > 0 && staticRoles.length === 0 ? `动：${movingText}` :
-        `静：${staticText}；动：${movingText}`;
+    const message = myDmuP4AccelerationGroupText(cluster.entries);
+    if (message === undefined) {
+      ready = false;
+      return;
+    }
     myDmuSendP4BuffChat(data, `p4-buff-accel-${index + 1}`, message);
   });
   return ready;
@@ -2605,6 +2636,14 @@ const myDmuTrySendP4ExecuteChat = (data, rec) => {
     return false;
   myDmuP4RefreshRecordTruth(data, rec);
   myDmuP4ClassifyForRecord(data, rec);
+  if (rec.buffId === myDmuP4AccelerationBuff && myDmuP4BuffChatChannel(data) === 'p') {
+    const records = myDmuP4AccelerationResolveRecords(data, rec);
+    const message = myDmuP4AccelerationGroupText(records);
+    if (message === undefined)
+      return false;
+    const key = records.map((record) => myDmuP4BuffChatKey('exec-accel', record)).join('|');
+    return myDmuSendP4BuffChat(data, `exec-accel:${key}`, `P4执行：${message}`);
+  }
   const action = myDmuP4ActionText(rec);
   if (action === undefined)
     return false;
