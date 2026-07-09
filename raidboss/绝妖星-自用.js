@@ -173,6 +173,7 @@ const myDmuP3ElementDebuffs = {
   '642': { kind: 'wind', text: '背对BOSS' },
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
+const myDmuP3BlackHoleTimelineAdvanceMs = 1200;
 const myDmuP3BlackHoleTimeline = [
   { id: 'step1', time: 3326, text: '回中间，攻击1接', duration: 4640 },
   { id: 'step2', time: 6500, text: '攻击2准备', duration: 6200 },
@@ -4145,7 +4146,7 @@ Options.Triggers.push({
       condition: (data) =>
         data.myDmuPhase === 'p3' &&
         myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
-      delaySeconds: Math.max(entry.time / 1000 - 0.25, 0),
+      delaySeconds: Math.max((entry.time - myDmuP3BlackHoleTimelineAdvanceMs) / 1000 - 0.25, 0),
       durationSeconds: Math.max(entry.duration / 1000 - 0.5, 1),
       suppressSeconds: 30,
       infoText: (data) => myDmuP3BlackHoleText(data, entry),
