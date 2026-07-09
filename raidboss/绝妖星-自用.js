@@ -326,15 +326,15 @@ const myDmuP5SymphonyBuffs = {
     text: '分摊死刑，挑衅，站在目标圈',
   },
 };
-const myDmuP5FloodPatterns = {
-  '82.292|89.372|0.785': ['A', 'B'],
-  '124.743|96.452|-0.785': ['B', 'A'],
-  '110.582|82.292|-0.785': ['B', 'C'],
-  '89.372|82.292|0.785': ['C', 'B'],
-  '75.242|96.452|0.785': ['C', 'D'],
-  '117.662|89.372|-0.785': ['D', 'C'],
-  '103.532|75.242|-0.785': ['D', 'A'],
-  '96.452|75.242|0.785': ['A', 'D'],
+const myDmuP5FloodWaves = {
+  '117.662|89.372|-0.785': 1,
+  '103.532|75.242|-0.785': 1,
+  '82.292|89.372|0.785': 2,
+  '96.452|75.242|0.785': 2,
+  '124.743|96.452|-0.785': 3,
+  '110.582|82.292|-0.785': 3,
+  '89.372|82.292|0.785': 4,
+  '75.242|96.452|0.785': 4,
 };
 const myDmuP5TrioBuffs = {
   B56: '火',
@@ -607,6 +607,8 @@ const myDmuEnsureP5State = (data) => {
   data.myDmuP5 ??= {};
   data.myDmuP5.symphonyCrowdTargets ??= [];
   data.myDmuP5.floods ??= [];
+  data.myDmuP5.floodWaveOrder ??= [];
+  data.myDmuP5.floodDirectionAnnounced ??= false;
   data.myDmuP5.trioBuffs ??= [];
   data.myDmuP5.trioTowers ??= [];
   data.myDmuP5.trioLitTowers ??= [];
@@ -640,46 +642,49 @@ const myDmuP5FloodKey = (matches) => {
 
 const myDmuRecordP5Flood = (data, matches) => {
   const state = myDmuEnsureP5State(data);
+  if (state.floodDirectionAnnounced)
+    return;
   const key = myDmuP5FloodKey(matches);
   if (key === undefined) {
     myDmuActLog('P5 洪水缺少坐标或朝向', matches);
     return;
   }
-  if (state.floods.length >= 4)
-    state.floods = [];
+  const wave = myDmuP5FloodWaves[key];
+  if (wave === undefined) {
+    myDmuActLog('P5 洪水坐标无法识别', { key });
+    return;
+  }
   if (state.floods.some((entry) => entry.key === key))
     return;
   state.floods.push({
     key: key,
-    x: myDmuNumber(matches.x),
-    y: myDmuNumber(matches.y) ?? myDmuNumber(matches.z),
+    wave: wave,
   });
+  if (!state.floodWaveOrder.includes(wave))
+    state.floodWaveOrder.push(wave);
+};
+
+const myDmuP5FloodDirection = (firstWave, secondWave) => {
+  const forward = (firstWave % 4) + 1;
+  const backward = ((firstWave + 2) % 4) + 1;
+  if (secondWave === forward)
+    return '去右';
+  if (secondWave === backward)
+    return '去左';
+  return undefined;
 };
 
 const myDmuP5FloodText = (data) => {
   const state = myDmuEnsureP5State(data);
-  if (state.floods.length < 4)
+  if (state.floodDirectionAnnounced || state.floods.length < 4 || state.floodWaveOrder.length < 2)
     return undefined;
-  const records = [...state.floods].sort((left, right) => (left.y ?? 0) - (right.y ?? 0) || (left.x ?? 0) - (right.x ?? 0));
-  const first = [...records.slice(0, 2)].sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
-  const second = [...records.slice(2, 4)].sort((left, right) => (left.x ?? 0) - (right.x ?? 0));
-  const firstPattern = myDmuP5FloodPatterns[first[0]?.key];
-  const secondPattern = myDmuP5FloodPatterns[second[0]?.key];
-  if (firstPattern === undefined || secondPattern === undefined) {
-    myDmuActLog('P5 洪水坐标无法识别', { first: first[0]?.key, second: second[0]?.key });
+  const direction = myDmuP5FloodDirection(state.floodWaveOrder[0], state.floodWaveOrder[1]);
+  if (direction === undefined) {
+    myDmuActLog('P5 洪水方向无法推导', { waves: state.floodWaveOrder.slice(0, 2) });
     return undefined;
   }
-  const start = firstPattern.find((point) => secondPattern.includes(point));
-  const other = firstPattern.find((point) => point !== start);
-  if (start === undefined || other === undefined) {
-    myDmuActLog('P5 洪水方向无法推导', { firstPattern, secondPattern });
-    return undefined;
-  }
-  const startIndex = ['A', 'B', 'C', 'D'].indexOf(start);
-  const otherIndex = ['A', 'B', 'C', 'D'].indexOf(other);
-  const direction = ((startIndex - otherIndex + 4) % 4) === 1 ? '左' : '右';
-  state.floods = [];
-  return `去${direction}`;
+  state.floodDirectionAnnounced = true;
+  return direction;
 };
 
 const myDmuRecordP5TrioBuff = (data, matches) => {
