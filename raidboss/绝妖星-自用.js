@@ -679,7 +679,7 @@ const myDmuP5FloodText = (data) => {
   const otherIndex = ['A', 'B', 'C', 'D'].indexOf(other);
   const direction = ((startIndex - otherIndex + 4) % 4) === 1 ? '左' : '右';
   state.floods = [];
-  return `${start}，${direction}`;
+  return `去${direction}`;
 };
 
 const myDmuRecordP5TrioBuff = (data, matches) => {
