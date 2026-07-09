@@ -173,7 +173,7 @@ const myDmuP3ElementDebuffs = {
   '642': { kind: 'wind', text: '背对BOSS' },
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
-const myDmuP3BlackHoleTimelineAdvanceMs = 1200;
+const myDmuP3BlackHoleTimelineAdvanceMs = 2000;
 const myDmuP3BlackHoleTimeline = [
   { id: 'step1', time: 3326, text: '回中间，攻击1接', duration: 4640 },
   { id: 'step2', time: 6500, text: '攻击2准备', duration: 6200 },
