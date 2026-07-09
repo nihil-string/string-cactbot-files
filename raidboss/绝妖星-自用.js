@@ -173,30 +173,6 @@ const myDmuP3ElementDebuffs = {
   '642': { kind: 'wind', text: '背对BOSS' },
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
-const myDmuP3BlackHoleTimelineAdvanceMs = 2000;
-const myDmuP3BlackHoleTimeline = [
-  { id: 'step1', time: 3326, text: '回中间，攻击1接', duration: 4640 },
-  { id: 'step2', time: 6500, text: '攻击2准备', duration: 6200 },
-  { id: 'step3', time: 13200, text: '攻击2接，准备暴雷', duration: 9000 },
-  { id: 'step4', time: 19000, text: '准备半场加耳光', duration: 10000 },
-  { id: 'step5', time: 33500, text: '攻击准备', duration: 2900 },
-  { id: 'step6', time: 36400, text: '攻击接', duration: 2500 },
-  { id: 'step7', time: 38500, text: '锁链1准备', duration: 2200 },
-  { id: 'step8', time: 41450, text: '锁链1替攻击1', duration: 2400 },
-  { id: 'step9', time: 43500, text: '锁链2准备', duration: 2600 },
-  { id: 'step10', time: 46800, text: '锁链2替攻击2，准备半场两侧暴雷', duration: 17000 },
-  { id: 'step11', time: 66500, text: '锁链准备', duration: 3200 },
-  { id: 'step12', time: 70650, text: '锁链接', duration: 2500 },
-  { id: 'step13', time: 72750, text: '禁止1准备', duration: 2200 },
-  { id: 'step14', time: 75750, text: '禁止1替锁链1', duration: 2200 },
-  { id: 'step15', time: 77750, text: '禁止2准备', duration: 2200 },
-  { id: 'step16', time: 80750, text: '禁止2替锁链2', duration: 8000 },
-  { id: 'step17', time: 83000, text: '准备白洞经纬耳光', duration: 16500 },
-  { id: 'step18', time: 101500, text: '禁止2准备', duration: 2200 },
-  { id: 'step19', time: 104500, text: '禁止2接两根', duration: 6500 },
-  { id: 'step20', time: 111000, text: '禁止1接', duration: 6000 },
-];
-
 const myDmuP4TruthHeadmarkers = {
   '02A3': { target: 'chaos', value: false },
   '02A4': { target: 'chaos', value: true },
@@ -494,15 +470,6 @@ const myDmuClearCachedSpeech = (data, key) => {
     delete data.myDmuSpeech[key];
 };
 
-const myDmuP3BlackHoleText = (data, entry) => {
-  const key = `p3BlackHole${entry.id}`;
-  if (data.myDmuPhase !== 'p3' || !myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true)) {
-    myDmuClearCachedSpeech(data, key);
-    return undefined;
-  }
-  return myDmuCacheSpeech(data, key, entry.text);
-};
-
 const myDmuSpeakText = (data, text) => {
   if (!myDmuForceTtsEnabled(data) || text === undefined || text === null || text === '')
     return;
@@ -668,9 +635,9 @@ const myDmuP5FloodDirection = (firstWave, secondWave) => {
   const forward = (firstWave % 4) + 1;
   const backward = ((firstWave + 2) % 4) + 1;
   if (secondWave === forward)
-    return '去右';
-  if (secondWave === backward)
     return '去左';
+  if (secondWave === backward)
+    return '去右';
   return undefined;
 };
 
@@ -4144,21 +4111,6 @@ Options.Triggers.push({
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p3BowelsOfAgony'),
     },
-    ...myDmuP3BlackHoleTimeline.map((entry) => ({
-      id: `绝妖星 P3 黑洞接线 ${entry.id}`,
-      type: 'Ability',
-      netRegex: { id: 'BAFB', capture: false },
-      condition: (data) =>
-        data.myDmuPhase === 'p3' &&
-        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
-      delaySeconds: Math.max((entry.time - myDmuP3BlackHoleTimelineAdvanceMs) / 1000 - 0.25, 0),
-      durationSeconds: Math.max(entry.duration / 1000 - 0.5, 1),
-      suppressSeconds: 30,
-      infoText: (data) => myDmuP3BlackHoleText(data, entry),
-      tts: null,
-      soundVolume: 0,
-      run: (data) => myDmuSpeakCached(data, `p3BlackHole${entry.id}`),
-    })),
     {
       id: '绝妖星 P3 简易打铁警察',
       type: 'Ability',
