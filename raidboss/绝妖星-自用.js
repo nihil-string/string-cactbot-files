@@ -368,7 +368,7 @@ const myDmuP2TowerTimelineTriggers = [...Array(8).keys()].map((index) => {
     infoText: (data) => {
       if (!myDmuBooleanConfig(data, 'MyDMU_P2TowerCallout', false))
         return undefined;
-      return myDmuCacheSpeech(data, `p2Tower${round}`, myDmuP2Instruction(data, round));
+      return myDmuP2TakeCallout(data, round, `p2Tower${round}`);
     },
     tts: null,
     soundVolume: 0,
@@ -1249,6 +1249,8 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2GroupB = [];
   data.myDmuP2InitialSlots = { A: [], B: [] };
   data.myDmuP2PointSlots = {};
+  data.myDmuP2GroupMismatches = {};
+  data.myDmuP2CalloutShown = {};
   data.myDmuP2InitialLocked = false;
   data.myDmuP2AppliedRounds = {};
   data.myDmuP2AppliedRoundSignatures = {};
@@ -1258,6 +1260,7 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2Round8Timer = undefined;
   data.myDmuP2BuffCounts = {};
   data.myDmuP2FuturePastCount = 0;
+  data.myDmuP2AllThingsEndingCount = 0;
   data.myDmuP2CombatantPositions = {};
   data.myDmuP2TowerRoundCount = 0;
   data.myDmuP2TowerCurrentRound = undefined;
@@ -1369,6 +1372,8 @@ const myDmuInitState = () => ({
   myDmuP2GroupB: [],
   myDmuP2InitialSlots: { A: [], B: [] },
   myDmuP2PointSlots: {},
+  myDmuP2GroupMismatches: {},
+  myDmuP2CalloutShown: {},
   myDmuP2InitialLocked: false,
   myDmuP2AppliedRounds: {},
   myDmuP2AppliedRoundSignatures: {},
@@ -1378,6 +1383,7 @@ const myDmuInitState = () => ({
   myDmuP2Round8Timer: undefined,
   myDmuP2BuffCounts: {},
   myDmuP2FuturePastCount: 0,
+  myDmuP2AllThingsEndingCount: 0,
   myDmuP2CombatantPositions: {},
   myDmuP2TowerRoundCount: 0,
   myDmuP2TowerCurrentRound: undefined,
@@ -1447,6 +1453,16 @@ const myDmuP2CombatantPoint = (combatant) => {
   if (!Number.isFinite(x) || !Number.isFinite(z))
     return undefined;
   return { x, z };
+};
+
+const myDmuP2RecordAbilityPosition = (data, matches) => {
+  const x = Number(matches.targetX);
+  const z = Number(matches.targetY);
+  if (matches.targetId === undefined || !Number.isFinite(x) || !Number.isFinite(z))
+    return false;
+  data.myDmuP2CombatantPositions ??= {};
+  data.myDmuP2CombatantPositions[myDmuP2ActorKey(matches.targetId)] = { x, z };
+  return true;
 };
 
 const myDmuP2RememberCombatantPosition = async (data, targetId) => {
@@ -1769,11 +1785,40 @@ const myDmuP2BuildPointSlots = (data, round, entries) => {
   return [cones[0], spreads[0], ...sortedStacks];
 };
 
+const myDmuP2GroupEntrySummary = (entries) =>
+  entries.map((entry) => `${entry.role ?? '?'}:${entry.name ?? entry.id}`).join(',');
+
+const myDmuP2ValidatePointGroup = (data, round, entries) => {
+  const expectedGroup = round <= 4 ? 'A' : 'B';
+  const expectedEntries = expectedGroup === 'A' ? data.myDmuP2GroupA : data.myDmuP2GroupB;
+  const expectedIds = expectedEntries.map((entry) => entry.id).sort();
+  const actualIds = entries.map((entry) => entry.id).sort();
+  if (expectedIds.join('|') === actualIds.join('|'))
+    return true;
+
+  data.myDmuP2GroupMismatches ??= {};
+  if (data.myDmuP2GroupMismatches[round] === undefined) {
+    data.myDmuP2GroupMismatches[round] = {
+      expectedGroup,
+      expected: expectedEntries.map((entry) => ({ id: entry.id, role: entry.role, name: entry.name })),
+      actual: entries.map((entry) => ({ id: entry.id, role: entry.role, name: entry.name })),
+    };
+    console.log(
+      `[String][P2TowerGroup] mismatch pointRound=${round} expectedGroup=${expectedGroup} ` +
+      `expected=${myDmuP2GroupEntrySummary(expectedEntries)} actual=${myDmuP2GroupEntrySummary(entries)} ` +
+      'check String role assignments',
+    );
+  }
+  return false;
+};
+
 const myDmuP2RecordPointSlots = (data, round) => {
   if (round < 2 || round > 7)
     return undefined;
   data.myDmuP2PointSlots ??= {};
-  const slots = myDmuP2BuildPointSlots(data, round, myDmuP2PointEntries(data, round));
+  const entries = myDmuP2PointEntries(data, round);
+  myDmuP2ValidatePointGroup(data, round, entries);
+  const slots = myDmuP2BuildPointSlots(data, round, entries);
   if (slots !== undefined)
     data.myDmuP2PointSlots[round] = slots;
   return slots;
@@ -1913,6 +1958,26 @@ const myDmuP2Instruction = (data, round) => {
     ? even
     : myDmuP2OddStrategy(data) === myDmuP2OddStrategies.melee ? oddMelee : oddOriginal;
   return `第${round}轮，${instructions[idleIndex]}`;
+};
+
+const myDmuP2TakeCallout = (data, round, cacheKey) => {
+  if (data.myDmuP2CalloutShown?.[round] === true)
+    return undefined;
+  const text = myDmuP2Instruction(data, round);
+  if (text === `第${round}轮准备`)
+    return undefined;
+  data.myDmuP2CalloutShown ??= {};
+  data.myDmuP2CalloutShown[round] = true;
+  return myDmuCacheSpeech(data, cacheKey, text);
+};
+
+const myDmuP2TakePointCalloutForTarget = (data, targetId, minRound, maxRound, cacheKey) => {
+  for (let round = maxRound; round >= minRound; round--) {
+    const seen = data.myDmuP2RoundSeen?.[round] ?? {};
+    if (seen[targetId] === true && Object.keys(seen).length >= 4)
+      return myDmuP2TakeCallout(data, round, cacheKey);
+  }
+  return undefined;
 };
 
 const myDmuP2FuturePastText = (data, type) => {
@@ -3892,6 +3957,27 @@ Options.Triggers.push({
       run: (data) => myDmuSpeakCached(data, 'p2FuturePast'),
     },
     {
+      id: '绝妖星 P2 消灭之脚',
+      type: 'StartsUsing',
+      netRegex: { id: ['BADC', 'BADD'], capture: true },
+      condition: (data) => myDmuBooleanConfig(data, 'MyDMU_P2ActionCallout', true),
+      preRun: (data) => data.myDmuP2AllThingsEndingCount++,
+      durationSeconds: 4,
+      suppressSeconds: 1,
+      alertText: (data, matches) => {
+        const count = data.myDmuP2AllThingsEndingCount;
+        const text = count <= 3
+          ? '走'
+          : count === 4
+            ? matches.id.toUpperCase() === 'BADC' ? '穿到背后' : '留在原地'
+            : undefined;
+        return myDmuCacheSpeech(data, 'p2AllThingsEnding', text);
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p2AllThingsEnding'),
+    },
+    {
       id: '绝妖星 P2 制裁之光',
       type: 'StartsUsing',
       netRegex: { id: 'BABD', capture: false },
@@ -3977,11 +4063,52 @@ Options.Triggers.push({
       run: (data, matches) => myDmuP2RecordTowerMapEffect(data, matches),
     },
     {
+      id: '绝妖星 P2 光之波动位置记录',
+      type: 'Ability',
+      netRegex: { id: 'BABE', capture: true },
+      condition: (data) => data.myDmuPhase === 'p2',
+      run: (data, matches) => myDmuP2RecordAbilityPosition(data, matches),
+    },
+    {
       id: '绝妖星 P2 八轮塔头标',
       type: 'HeadMarker',
       netRegex: { id: Object.keys(myDmuP2Headmarkers), capture: true },
       promise: (data, matches) => myDmuP2RememberCombatantPosition(data, matches.targetId),
       run: (data, matches) => myDmuHandleP2Headmarker(data, matches),
+    },
+    {
+      id: '绝妖星 P2 八轮塔初始事件播报',
+      type: 'HeadMarker',
+      netRegex: { id: Object.keys(myDmuP2Headmarkers), capture: true },
+      condition: (data) =>
+        data.myDmuPhase === 'p2' &&
+        myDmuBooleanConfig(data, 'MyDMU_P2TowerCallout', false),
+      delaySeconds: 0.1,
+      durationSeconds: 10.2,
+      infoText: (data, matches) => {
+        const seen = data.myDmuP2RoundSeen?.[1] ?? {};
+        if (seen[matches.targetId] !== true || Object.keys(seen).length < 8)
+          return undefined;
+        return myDmuP2TakeCallout(data, 1, 'p2TowerEventInitial');
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p2TowerEventInitial'),
+    },
+    {
+      id: '绝妖星 P2 八轮塔后续事件播报',
+      type: 'HeadMarker',
+      netRegex: { id: Object.keys(myDmuP2Headmarkers), capture: true },
+      condition: (data) =>
+        data.myDmuPhase === 'p2' &&
+        myDmuBooleanConfig(data, 'MyDMU_P2TowerCallout', false),
+      delaySeconds: 3,
+      durationSeconds: 9,
+      infoText: (data, matches) =>
+        myDmuP2TakePointCalloutForTarget(data, matches.targetId, 2, 7, 'p2TowerEventFollowup'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p2TowerEventFollowup'),
     },
     {
       id: '绝妖星 P2 光之波动轮次校验',
@@ -3998,6 +4125,23 @@ Options.Triggers.push({
           myDmuScheduleClearMarks(data, 'p2Tower', 1.2, (data) =>
             (data.myDmuP2AbilityRound ?? 0) >= 8 && myDmuMarkEnabled(data, 'MyDMU_P2TowerMarkV3'));
       },
+    },
+    {
+      id: '绝妖星 P2 八轮塔第八轮事件播报',
+      type: 'Ability',
+      netRegex: { id: 'BABE', capture: false },
+      condition: (data) =>
+        data.myDmuPhase === 'p2' &&
+        myDmuBooleanConfig(data, 'MyDMU_P2TowerCallout', false),
+      delaySeconds: 0.1,
+      suppressSeconds: 1,
+      durationSeconds: 9,
+      infoText: (data) => data.myDmuP2AbilityRound === 7
+        ? myDmuP2TakeCallout(data, 8, 'p2TowerEventRound8')
+        : undefined,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p2TowerEventRound8'),
     },
     {
       id: '绝妖星 P3 水火Debuff',
