@@ -290,11 +290,39 @@ const myDmuP3FirewallEffects = {
 const myDmuP5SymphonyBuffs = {
   '14E6': {
     kind: 'flare',
-    text: '分摊死刑，退避',
+    initial: '分摊死刑，退避，准备去场边',
+    followup: '去场边',
   },
   '14E7': {
     kind: 'holy',
-    text: '分摊死刑，挑衅，站在目标圈',
+    initial: '分摊死刑，挑衅，不要靠近',
+    followup: '靠近',
+  },
+};
+const myDmuP5SymphonySpreadSchemes = {
+  eden: 'eden',
+  omega: 'omega',
+};
+const myDmuP5SymphonySpreadDirections = {
+  [myDmuP5SymphonySpreadSchemes.eden]: {
+    MT: '上北',
+    ST: '右上',
+    H1: '左西',
+    H2: '下南',
+    D1: '左下',
+    D2: '右下',
+    D3: '左上',
+    D4: '右东',
+  },
+  [myDmuP5SymphonySpreadSchemes.omega]: {
+    MT: '上偏左',
+    ST: '上偏右',
+    H1: '左偏下',
+    H2: '右偏下',
+    D1: '下偏左',
+    D2: '下偏右',
+    D3: '左偏上',
+    D4: '右偏上',
   },
 };
 const myDmuP5FloodWaves = {
@@ -564,6 +592,18 @@ const myDmuP3SelectedTargetHitText = (data, matches, text) => {
 
 const myDmuP5SymphonyInfo = (effectId) =>
   myDmuP5SymphonyBuffs[effectId?.toString().toUpperCase()];
+
+const myDmuP5SymphonySpreadText = (data) => {
+  const scheme = data.triggerSetConfig?.MyDMU_P5SymphonySpreadScheme ??
+    myDmuP5SymphonySpreadSchemes.eden;
+  const role = myDmuGetRpByName(data, data.me);
+  const direction = myDmuP5SymphonySpreadDirections[scheme]?.[role];
+  if (direction === undefined) {
+    myDmuActLog('P5 癫狂八方职能无法识别', { role, scheme });
+    return '八方分散';
+  }
+  return `八方分散，${direction}`;
+};
 
 const myDmuEnsureP5State = (data) => {
   data.myDmuP5 ??= {};
@@ -3603,6 +3643,18 @@ Options.Triggers.push({
       default: true,
     },
     {
+      id: 'MyDMU_P5SymphonySpreadScheme',
+      name: { en: '自用：P5 癫狂八方站位' },
+      type: 'select',
+      options: {
+        en: {
+          '绝伊甸 P1 正八方': myDmuP5SymphonySpreadSchemes.eden,
+          '绝欧米茄 P1 斜八方': myDmuP5SymphonySpreadSchemes.omega,
+        },
+      },
+      default: myDmuP5SymphonySpreadSchemes.eden,
+    },
+    {
       id: 'MyDMU_P5MitigationChannel',
       name: { en: '自用：P5 减伤聊天频道' },
       type: 'select',
@@ -3655,6 +3707,17 @@ Options.Triggers.push({
         else if (data.myDmuP1GravenCount >= 3)
           data.myDmuP1Stage = 'graven3';
       },
+    },
+    {
+      id: '绝妖星 P1 恶狠狠毁荡',
+      type: 'StartsUsing',
+      netRegex: { id: 'C403', capture: false },
+      condition: (data) => myDmuP1CalloutEnabled(data),
+      durationSeconds: 5,
+      alertText: (data) => myDmuCacheSpeech(data, 'p1ManaCharge', '死刑换T'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p1ManaCharge'),
     },
     {
       id: '绝妖星 P1 踩踏进入神像3',
@@ -4253,6 +4316,85 @@ Options.Triggers.push({
       run: (data) => myDmuSpeakCached(data, 'p3BowelsOfAgony'),
     },
     {
+      id: '绝妖星 P3 经纬度聚爆',
+      type: 'StartsUsing',
+      netRegex: { id: ['BAFD', 'BAFE'], capture: true },
+      condition: (data) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      alertText: (data, matches) => myDmuCacheSpeech(
+        data,
+        'p3LatitudeLongitude',
+        matches.id.toUpperCase() === 'BAFE' ? '先去前后' : '先去左右',
+      ),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3LatitudeLongitude'),
+    },
+    {
+      id: '绝妖星 P3 经纬度聚爆穿',
+      type: 'StartsUsing',
+      netRegex: { id: ['BAFD', 'BAFE'], capture: false },
+      condition: (data) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      delaySeconds: 5.3,
+      durationSeconds: 3,
+      suppressSeconds: 1,
+      alertText: (data) => myDmuCacheSpeech(data, 'p3LatitudeLongitudeCross', '穿'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3LatitudeLongitudeCross'),
+    },
+    {
+      id: '绝妖星 P3 响亮亮耳光',
+      type: 'StartsUsing',
+      netRegex: { id: ['BAE6', 'BAE7'], capture: true },
+      condition: (data) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      alertText: (data, matches) => myDmuCacheSpeech(
+        data,
+        'p3LoudSlap',
+        matches.id.toUpperCase() === 'BAE6' ? '右侧分摊' : '左侧职能分散',
+      ),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3LoudSlap'),
+    },
+    {
+      id: '绝妖星 P3 暴雷死刑',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB09', capture: false },
+      condition: (data) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      durationSeconds: 4,
+      suppressSeconds: 1,
+      alertText: (data) => myDmuCacheSpeech(data, 'p3ThunderTankbuster', '死刑'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3ThunderTankbuster'),
+    },
+    {
+      id: '绝妖星 P3 地震血量归一',
+      type: 'StartsUsing',
+      netRegex: { id: 'C572', capture: false },
+      condition: (data) =>
+        data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
+      durationSeconds: 4,
+      suppressSeconds: 1,
+      alertText: (data) => myDmuCacheSpeech(data, 'p3EarthquakeHpOne', '血量归一'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3EarthquakeHpOne'),
+    },
+    {
       id: '绝妖星 P3 简易打铁警察',
       type: 'Ability',
       netRegex: { targetId: '4.{7}', capture: true },
@@ -4530,6 +4672,18 @@ Options.Triggers.push({
       run: (data) => myDmuSpeakCached(data, 'p5ScholarShield'),
     },
     {
+      id: '绝妖星 P5 癫狂交响曲八方',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB50', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuCacheSpeech(data, 'p5SymphonySpread', myDmuP5SymphonySpreadText(data)),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5SymphonySpread'),
+    },
+    {
       id: '绝妖星 P5 癫狂交响曲死刑',
       type: 'GainsEffect',
       netRegex: { effectId: Object.keys(myDmuP5SymphonyBuffs), capture: true },
@@ -4537,23 +4691,24 @@ Options.Triggers.push({
       durationSeconds: 5,
       suppressSeconds: 1,
       infoText: (data, matches) =>
-        myDmuCacheSpeech(data, 'p5SymphonyTankbuster', myDmuP5SymphonyInfo(matches.effectId)?.text),
+        myDmuCacheSpeech(data, 'p5SymphonyTankbuster', myDmuP5SymphonyInfo(matches.effectId)?.initial),
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p5SymphonyTankbuster'),
     },
     {
-      id: '绝妖星 P5 核爆远离',
+      id: '绝妖星 P5 癫狂交响曲后续',
       type: 'GainsEffect',
-      netRegex: { effectId: '14E6', capture: true },
+      netRegex: { effectId: Object.keys(myDmuP5SymphonyBuffs), capture: true },
       condition: (data, matches) => myDmuP5CalloutEnabled(data) && matches.target === data.me,
-      delaySeconds: 2.9,
+      delaySeconds: 2.8,
       durationSeconds: 3,
       suppressSeconds: 1,
-      infoText: (data) => myDmuCacheSpeech(data, 'p5SymphonyFlareAway', '远离'),
+      infoText: (data, matches) =>
+        myDmuCacheSpeech(data, 'p5SymphonyFollowup', myDmuP5SymphonyInfo(matches.effectId)?.followup),
       tts: null,
       soundVolume: 0,
-      run: (data) => myDmuSpeakCached(data, 'p5SymphonyFlareAway'),
+      run: (data) => myDmuSpeakCached(data, 'p5SymphonyFollowup'),
     },
     {
       id: '绝妖星 P5 人群神圣',
