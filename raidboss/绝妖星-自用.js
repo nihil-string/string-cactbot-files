@@ -335,7 +335,7 @@ const myDmuP5MitigationText = (entry) => {
 };
 
 const myDmuP5MitigationChatChannel = (data) =>
-  data.triggerSetConfig?.MyDMU_P5MitigationChannel ?? 'e';
+  data.triggerSetConfig?.MyDMU_P5MitigationChannel === 'p' ? 'p' : 'e';
 
 const myDmuP4BuffChatChannel = (data) =>
   data.triggerSetConfig?.MyDMU_P4BuffChatChannel === 'p' ? 'p' : 'e';
