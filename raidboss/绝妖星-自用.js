@@ -3712,7 +3712,7 @@ Options.Triggers.push({
       id: '绝妖星 P1 恶狠狠毁荡',
       type: 'StartsUsing',
       netRegex: { id: 'C403', capture: false },
-      condition: (data) => myDmuP1CalloutEnabled(data),
+      condition: (data) => myDmuP1CalloutEnabled(data) && data.role === 'tank',
       durationSeconds: 5,
       alertText: (data) => myDmuCacheSpeech(data, 'p1ManaCharge', '死刑换T'),
       tts: null,
@@ -3975,7 +3975,9 @@ Options.Triggers.push({
       id: '绝妖星 P2 终末双腕',
       type: 'StartsUsing',
       netRegex: { id: 'C24C', capture: false },
-      condition: (data) => myDmuBooleanConfig(data, 'MyDMU_P2ActionCallout', true),
+      condition: (data) =>
+        data.role === 'tank' &&
+        myDmuBooleanConfig(data, 'MyDMU_P2ActionCallout', true),
       durationSeconds: 5,
       infoText: (data) => myDmuCacheSpeech(data, 'p2UltimateEmbrace', '双T死刑'),
       tts: null,
@@ -4372,6 +4374,7 @@ Options.Triggers.push({
       netRegex: { id: 'BB09', capture: false },
       condition: (data) =>
         data.myDmuPhase === 'p3' &&
+        data.role === 'tank' &&
         myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true),
       durationSeconds: 4,
       suppressSeconds: 1,
