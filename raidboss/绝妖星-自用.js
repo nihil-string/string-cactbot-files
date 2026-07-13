@@ -1332,9 +1332,15 @@ const myDmuResetP3Targets = (data) => {
   };
 };
 
-const myDmuResetP4 = (data) => {
+const myDmuCancelP4Timers = (data) => {
   for (const timer of Object.values(data.myDmuP4?.markTimers ?? {}))
     clearTimeout(timer);
+  if (data.myDmuP4 !== undefined)
+    data.myDmuP4.markTimers = {};
+};
+
+const myDmuResetP4 = (data) => {
+  myDmuCancelP4Timers(data);
   data.myDmuP4 = {
     truth: { ex: undefined, chaos: undefined },
     truthAt: { ex: undefined, chaos: undefined },
@@ -3674,7 +3680,12 @@ Options.Triggers.push({
       type: 'StartsUsing',
       netRegex: { id: Object.keys(myDmuPhaseStarts), capture: true },
       run: (data, matches) => {
-        data.myDmuPhase = myDmuPhaseStarts[matches.id] ?? data.myDmuPhase;
+        const nextPhase = myDmuPhaseStarts[matches.id];
+        if (nextPhase === undefined)
+          return;
+        if (data.myDmuPhase === 'p4' && nextPhase !== 'p4')
+          myDmuCancelP4Timers(data);
+        data.myDmuPhase = nextPhase;
         if (data.myDmuPhase === 'p1') {
           myDmuResetP1(data);
           myDmuClearMarks(data);
