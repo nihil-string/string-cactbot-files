@@ -169,10 +169,6 @@ const myDmuP3ElementDebuffs = {
   '643': { kind: 'antiwind', text: '面向艾克斯迪斯' },
 };
 const myDmuP4TruthHeadmarkers = {
-  '02A3': { target: 'chaos', value: false },
-  '02A4': { target: 'chaos', value: true },
-  '02A5': { target: 'ex', value: false },
-  '02A6': { target: 'ex', value: true },
   '045F': { target: 'chaos', value: false },
   '0460': { target: 'chaos', value: true },
   '0461': { target: 'ex', value: false },
@@ -214,10 +210,6 @@ const myDmuP4MagicReleaseHeadmarkers = {
   '02A4': { element: 'ice', invert: false, label: '冰无问号' },
   '02A5': { element: 'thunder', invert: true, label: '雷问号' },
   '02A6': { element: 'thunder', invert: false, label: '雷无问号' },
-  '045F': { element: 'ice', invert: true, label: '冰问号' },
-  '0460': { element: 'ice', invert: false, label: '冰无问号' },
-  '0461': { element: 'thunder', invert: true, label: '雷问号' },
-  '0462': { element: 'thunder', invert: false, label: '雷无问号' },
 };
 
 const myDmuNewP4MagicStorage = (previous, keepCount = false) => ({
@@ -4558,16 +4550,20 @@ Options.Triggers.push({
     {
       id: '绝妖星 P4 真假头标',
       type: 'HeadMarker',
-      netRegex: { id: Object.keys(myDmuP4TruthHeadmarkers), capture: true },
+      netRegex: {
+        id: [...Object.keys(myDmuP4TruthHeadmarkers), ...Object.keys(myDmuP4MagicReleaseHeadmarkers)],
+        capture: true,
+      },
       condition: (data) => data.myDmuPhase === 'p4',
       preRun: (data, matches) => {
-        const truth = myDmuP4TruthHeadmarkers[myDmuNormalizeHeadmarkerId(matches.id)];
-        if (truth === undefined)
-          return;
-        myDmuP4RecordTruth(data, truth.target, truth.value);
-        myDmuP4MagicRecordReleaseMarker(data, matches, 'truth-headmarker');
-        myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
-        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-headmarker'), 12, 250);
+        const markerId = myDmuNormalizeHeadmarkerId(matches.id);
+        const truth = myDmuP4TruthHeadmarkers[markerId];
+        if (truth !== undefined) {
+          myDmuP4RecordTruth(data, truth.target, truth.value);
+          myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
+          myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-headmarker'), 12, 250);
+        }
+        myDmuP4MagicRecordReleaseMarker(data, matches, 'magic-headmarker');
       },
     },
     {
