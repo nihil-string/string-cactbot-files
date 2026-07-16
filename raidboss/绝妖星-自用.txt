@@ -126,15 +126,15 @@ hideall "绝妖星 P5 减伤 18"
 318.7 "咏唱危机·驱动/咏唱危机·散碎/咏唱危机·波动" Ability { id: ["BAC0", "BAC1", "BAC2"] }
 328.56 "消灭之脚" #Ability { id: ["BACD", "BADC", "BADD"] }
 # 异三角
-337.32 "制裁之光" Ability { id: "BABD" } window 1,1
-348.32 "异三角" Ability { id: "BADF" } window 1,1
-355.7 "破坏之翼 1" Ability { id: ["BACD", "BACE"] } window 1,1
+337.69 "制裁之光" Ability { id: "BABD" } window 1,1
+348.91 "异三角" Ability { id: "BADF" } window 1,1
+356.04 "破坏之翼 1" Ability { id: ["BACD", "BACE"] } window 1,1
 361.5 "异三角 1" #Ability { id: "BAE0" }
 363.5 "异三角 2" #Ability { id: "BAE0" }
 365.5 "异三角 3" #Ability { id: "BAE0" }
-365.64 "破坏之翼 2" Ability { id: "C487" } window 1,1
+366.21 "破坏之翼 2" Ability { id: "C487" } window 1,1
 365.9 "破坏之翼" #Ability { id: "BACF" }
-373.0 "终末双腕" Ability { id: "C24C" } window 1,1
+373.33 "终末双腕" Ability { id: "C24C" } window 1,1
 376.2 "--sync--" StartsUsing { id: "BAE1" } jump "p2-enrage"
 379.70 "--sync--" StartsUsing { id: "C3F7" } jump "p2-success"
 381.2 "制裁之光（狂暴？）" #Ability { id: "BAE1" } # Kefka > 0% HP
@@ -144,7 +144,7 @@ hideall "绝妖星 P5 减伤 18"
 500.0 "疼飕飕暴风" Ability { id: "C3F7" } window 500,20
 ### Phase 3 - Chaos and Exdeath
 # Network-log calibrated from 2026-06-09..2026-07-01 ACT logs after C3F7 forcejump.
-# P3 virtual time is Dmu 1.5.5 time +112.9s. Narrow windows keep repeated IDs on their own nodes.
+# P3 starts from Dmu 1.5.5 time +112.9s, then uses three-log interval corrections after each sync.
 # Dmu 1.5.5 is the whitelist: variable BAF3/BAF6, repeated BAFA, and absent BCCD stay disabled.
 # No stable P3 0044 voiceline found in sampled logs; ability syncs are retained.
 # en: 'Hmph. I see what's going on here.'
@@ -155,9 +155,9 @@ hideall "绝妖星 P5 减伤 18"
 # Fire, Water, and Wind Elements
 563.1 "深层痛楚" Ability { id: "BAF2" }
 582.21 "混沌之水" #Ability { id: "BAF6" }
-582.1 "暴雷" Ability { id: "BB12" } window 1,1
-583.24 "大海啸" Ability { id: "BAF5" }
-584.9 "气旋" Ability { id: "BAF8" }
+582.32 "暴雷" Ability { id: "BB12" } window 1,1
+583.24 "烈焰/海啸 1" Ability { id: ["BAF4", "BAF5"] } window 1,1
+584.9 "气旋" #Ability { id: "BAF8" }
 591.3 "暴雷" Ability { id: "BB09" } window 1,1
 591.3 "暴雷" #Ability { id: "BB0C" }
 594.3 "暴雷" #Ability { id: "BB0C" }
@@ -167,8 +167,8 @@ hideall "绝妖星 P5 减伤 18"
 605.0 "震荡波" #Ability { id: "BAFF" }
 607.0 "震荡波" #Ability { id: "BAFF" }
 609.19 "混沌之炎" #Ability { id: "BAF3" }
-610.22 "地狱之火炎" Ability { id: "BAF4" }
-611.7 "气旋" Ability { id: "BAF8" }
+610.22 "烈焰/海啸 2" Ability { id: ["BAF4", "BAF5"] } window 1,1
+611.7 "气旋" #Ability { id: "BAF8" }
 # Limit Cut Preview
 620.3 "究极冲击波" #Ability { id: "BAE3" }
 622.3 "究极冲击波" #Ability { id: "BAE3" }
@@ -192,21 +192,21 @@ hideall "绝妖星 P5 减伤 18"
 643.4 "究极冲击波 6" #Ability { id: "BAE4" }
 643.6 "究极冲击波 7" #Ability { id: "BAE4" }
 643.8 "究极冲击波 8" #Ability { id: "BAE4" }
-649.7 "暴雷" Ability { id: "BB09" } window 1,1
+650.02 "暴雷" Ability { id: "BB09" } window 1,1
 649.7 "暴雷" #Ability { id: "BB0C" }
 652.7 "暴雷" #Ability { id: "BB0C" }
-657.96 "决战" Ability { id: "C2E3" }
+658.02 "决战" Ability { id: "C2E3" }
 657.7 "决战" #Ability { id: "C2E2" }
-667.15 "暴雷" Ability { id: "BB09" } window 1,1
+667.25 "暴雷" Ability { id: "BB09" } window 1,1
 666.8 "暴雷" #Ability { id: "BB0C" }
 # Giant Kefka + Earth Element
-669.11 "放大" Ability { id: "BAE5" }
+669.15 "放大" Ability { id: "BAE5" }
 669.8 "暴雷" #Ability { id: "BB0C" }
 672.20 "地震" #Ability { id: "C571" }
 671.85 "地震" #Ability { id: "C572" }
 680.5 "地震" #Ability { id: "BAFA" }
 683.65 "地震" #Ability { id: "BAFA" }
-687.28 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] } window 1,1
+687.75 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] } window 1,1
 688.6 "响亮亮耳光" #Ability { id: "BAE8" }
 689.3 "响亮亮耳光" #Ability { id: "BAE8" }
 689.9 "响亮亮耳光" #Ability { id: "BAE8" }
@@ -217,12 +217,12 @@ hideall "绝妖星 P5 减伤 18"
 698.56 "以太连接" #Ability { id: "C2E5" }
 698.56 "以太连接" #Ability { id: "C2E4" }
 705.3 "无之波动" #Ability { id: "BAFC" }
-708.55 "暴雷" Ability { id: "BB09" } window 1,1
+708.85 "暴雷" Ability { id: "BB09" } window 1,1
 708.4 "暴雷" #Ability { id: "BB0C" }
 711.4 "暴雷" #Ability { id: "BB0C" }
 712.7 "地震" #Ability { id: "BAFA" }
-716.81 "诅咒敕令" Ability { id: "BB01" } window 1,1
-717.81 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] } window 1,1
+717.05 "诅咒敕令" Ability { id: "BB01" } window 1,1
+718.18 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] } window 1,1
 719.1 "响亮亮耳光" #Ability { id: "BAE8" }
 719.7 "响亮亮耳光" #Ability { id: "BAE8" }
 720.4 "响亮亮耳光" #Ability { id: "BAE8" }
@@ -235,12 +235,12 @@ hideall "绝妖星 P5 减伤 18"
 733.8 "无之波动" #Ability { id: "BAFC" }
 735.28 "地震" #Ability { id: "BAFA" }
 738.80 "无之波动" #Ability { id: "BAFC" }
-744.0 "诅咒敕令" Ability { id: "BB01" } window 1,1
-744.4 "本色出演的我" Ability { id: "BAEC" } window 1,1
-745.52 "本色出演的我" Ability { id: "BAEE" } window 1,1
+744.41 "诅咒敕令" Ability { id: "BB01" } window 1,1
+744.61 "本色出演的我" Ability { id: "BAEC" } window 1,1
+745.70 "本色出演的我" Ability { id: "BAEE" } window 1,1
 747.40 "黑血" #Ability { id: "C4BA" }
 747.5 "地震" #Ability { id: "BAFA" }
-749.72 "暴雷" Ability { id: "BB09" } window 1,1
+750.10 "暴雷" Ability { id: "BB09" } window 1,1
 749.7 "暴雷" #Ability { id: "BB0C" }
 752.7 "暴雷" #Ability { id: "BB0C" }
 762.8 "无之波动" #Ability { id: "BAFC" }
@@ -256,7 +256,7 @@ hideall "绝妖星 P5 减伤 18"
 784.2 "白洞" #Ability { id: "BD66" }
 784.2 "经度聚爆/纬度聚爆" #Ability { id: ["BAFD", "BAFE"] }
 785.0 "震荡波" #Ability { id: "BAFF" }
-785.90 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] } window 1,1
+786.17 "响亮亮耳光" Ability { id: ["BAE6", "BAE7"] } window 1,1
 787.1 "响亮亮耳光" #Ability { id: "BAE8" }
 787.2 "震荡波" #Ability { id: "BAFF" }
 787.7 "响亮亮耳光" #Ability { id: "BAE8" }
@@ -266,8 +266,8 @@ hideall "绝妖星 P5 减伤 18"
 792.5 "暗黑火花" #Ability { id: "BCCD" }
 796.5 "无之波动" #Ability { id: "BAFC" }
 796.5 "无之波动" #Ability { id: "BAFC" }
-802.66 "本色出演的我" Ability { id: "BAED" } window 1,1
-803.78 "本色出演的我" Ability { id: "BAEE" } window 1,1
+802.61 "本色出演的我" Ability { id: "BAED" } window 1,1
+803.70 "本色出演的我" Ability { id: "BAEE" } window 1,1
 803.80 "无之波动" #Ability { id: "BAFC" }
 # Blizzards and Towers
 # Summary:
@@ -280,22 +280,22 @@ hideall "绝妖星 P5 减伤 18"
 # 7. Role 2 4-Stack
 # 8. Deep Freeze (Blizzard)
 805.3 "--sync--" #Ability { id: "C533" }
-812.4 "冰封（读条）" Ability { id: "BB0F" } window 1,1
+813.09 "冰封（读条）" Ability { id: "BB0F" } window 1,1
 814.3 "地震？" #Ability { id: "BAFA" }
 815.4 "冰封 1" #Ability { id: "BB0D" }
-816.3 "轰隆隆跺脚（读条）" Ability { id: "BAEF" } window 1,1 # Possibly determines which foot he starts with and/or its based on facing?
-818.15 "轰击 1" Ability { id: "BB02" } window 1,1
+816.86 "轰隆隆跺脚（读条）" Ability { id: "BAEF" } window 1,1 # Possibly determines which foot he starts with and/or its based on facing?
+818.55 "轰击 1" Ability { id: "BB02" } window 1,1
 818.78 "冰封 2" #Ability { id: "BB0D" }
 819.29 "轰隆隆跺脚 1" #Ability { id: "BAF0" } window 0.6,0.6
 820.63 "轰隆隆跺脚 2" #Ability { id: "BAF0" }
 821.96 "轰隆隆跺脚 3" #Ability { id: "BAF0" }
 823.25 "轰隆隆跺脚 4" #Ability { id: "BAF0" }
-823.77 "轰击 2" Ability { id: "BB03" } window 1,1
-826.52 "冰封" Ability { id: "BB11" } window 1,1
-827.86 "顶起" Ability { id: ["BB05", "BB06"] } window 1,1
+824.14 "轰击 2" Ability { id: "BB03" } window 1,1
+827.50 "冰封" Ability { id: "BB11" } window 1,1
+828.68 "顶起" Ability { id: ["BB05", "BB06"] } window 1,1
 840.8 "--sync--" #StartsUsing { id: "C258" } jump "p3-enrage"
 840.8 "--sync--" #StartsUsing { id: "C259" } jump "p3-enrage"
-851.50 "--sync--" StartsUsing { id: "C2DC", source: "凯夫卡" } window 180,10 jump "p4" # Three-clear mean for the fixed P3-to-P4 alignment point.
+852.35 "--sync--" StartsUsing { id: "C2DC", source: "凯夫卡" } window 180,10 jump "p4" # Three-clear cumulative fit for the fixed P3-to-P4 alignment point.
 845.8 "陨石流星（狂暴？）" #Ability { id: "C258" } # Exdeath >0% HP?
 845.8 "深层痛楚（狂暴？）" #Ability { id: "C259" } # Chaos >0% HP?
 ### Phase 4 - Reborn Exdeath and Kefka
