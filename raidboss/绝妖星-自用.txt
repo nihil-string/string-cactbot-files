@@ -295,14 +295,19 @@ hideall "绝妖星 P5 减伤 18"
 828.68 "顶起" Ability { id: ["BB05", "BB06"] } window 1,1
 840.8 "--sync--" #StartsUsing { id: "C258" } jump "p3-enrage"
 840.8 "--sync--" #StartsUsing { id: "C259" } jump "p3-enrage"
-852.35 "--sync--" StartsUsing { id: "C2DC", source: "凯夫卡" } window 180,10 jump "p4" # Three-clear cumulative fit for the fixed P3-to-P4 alignment point.
+844.94 "--sync--" AddedCombatant { npcBaseId: "19510" } window 2,2 jump "p4-spawn" # Primary: hidden Reborn Exdeath spawns together with Chaos in all three clears.
 845.8 "陨石流星（狂暴？）" #Ability { id: "C258" } # Exdeath >0% HP?
 845.8 "深层痛楚（狂暴？）" #Ability { id: "C259" } # Chaos >0% HP?
+847.18 "--sync--" NameToggle { name: "凯夫卡", toggle: "01" } window 2,2 jump "p4-targetable" # Fallback when AddedCombatant is unavailable.
+852.35 "--sync--" StartsUsing { id: "C2DC", source: "凯夫卡" } window 180,10 jump "p4" # Final fallback only.
 ### Phase 4 - Reborn Exdeath and Kefka
 # Source: 绝妖星乱舞时间轴-团减排轴一体机.xlsx, P4 sheet.
-# P4 label is aligned by the C2DC transition jump above. Excel P4 phase time is 10s earlier.
+# Three-clear transition chain: hidden spawn -> targetable (2.29s) -> C2DC (5.17s).
+892.54 label "p4-spawn"
+894.83 label "p4-targetable"
+894.83 "--sync--" NameToggle { name: "凯夫卡", toggle: "01" } window 1,1 jump "p4-targetable"
 900.0 label "p4"
-900.0 "闹哄哄魂击" #StartsUsing { id: "C2DC", source: "凯夫卡" }
+900.0 "闹哄哄魂击" StartsUsing { id: "C2DC", source: "凯夫卡" } window 1,1
 905.0 "闹哄哄魂击" Ability { id: "C2DC" }
 909.6 "玄乎乎魔法 1" StartsUsing { id: "BA94" }
 909.6 "冰雷 1" StartsUsing { id: ["BA95", "BA98", "BA9B", "BA9E", "BA9F", "BAA0", "BAA1"] }
