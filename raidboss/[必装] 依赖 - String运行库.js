@@ -275,6 +275,83 @@
   const placeLoad = () => callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'load' });
   const placeClear = () => callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'clear' });
 
+  const maxPictoActPayloadLength = 65536;
+  const pictoActKeyPattern = /^[A-Za-z][A-Za-z0-9_]*$/u;
+
+  const serializePictoActValue = (value, key) => {
+    if (Array.isArray(value)) {
+      if (value.length === 0)
+        throw new Error(`PictoACT ${key} 数组不能为空`);
+      return value.map((item) => serializePictoActValue(item, key)).join(', ');
+    }
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value))
+        throw new Error(`PictoACT ${key} 数值非法: ${value}`);
+      return value.toString();
+    }
+    if (typeof value === 'boolean')
+      return value ? 'true' : 'false';
+    if (typeof value !== 'string')
+      throw new Error(`PictoACT ${key} 只接受字符串、数字、布尔值或数组`);
+    if (/\r|\n/u.test(value) || value.includes('---'))
+      throw new Error(`PictoACT ${key} 不允许换行或命令分隔符`);
+    if (value.trim() === '')
+      throw new Error(`PictoACT ${key} 不能为空`);
+    return value;
+  };
+
+  const serializePictoActCommand = (command) => {
+    if (command === null || typeof command !== 'object' || Array.isArray(command))
+      throw new Error('PictoACT 命令必须是对象');
+    const entries = Object.entries(command);
+    if (entries.length === 0)
+      throw new Error('PictoACT 命令不能为空对象');
+    return entries.map(([key, value]) => {
+      if (!pictoActKeyPattern.test(key))
+        throw new Error(`PictoACT 参数名非法: ${key}`);
+      return `${key}: ${serializePictoActValue(value, key)}`;
+    }).join('\n');
+  };
+
+  const normalizePictoActPayload = (input) => {
+    let payload;
+    if (typeof input === 'string') {
+      payload = input.trim();
+      if (payload === '')
+        throw new Error('PictoACT payload 不能为空');
+    } else {
+      const commands = Array.isArray(input) ? input : [input];
+      if (commands.length === 0)
+        throw new Error('PictoACT 命令数组不能为空');
+      payload = commands.map(serializePictoActCommand).join('\n---\n');
+    }
+    if (payload.length > maxPictoActPayloadLength)
+      throw new Error('PictoACT payload 超过 65536 字符限制');
+    return payload;
+  };
+
+  const pictoAct = async (input) => {
+    const payload = normalizePictoActPayload(input);
+    if (isDebugPage) {
+      console.debug('String运行库 PictoACT', payload);
+      return { ok: true, debug: true, payload };
+    }
+    const result = await callOverlayHandler({
+      call: 'stringVfx',
+      action: 'invoke',
+      payload: payload,
+    });
+    if (result?.ok !== true)
+      throw new Error(result?.error ?? 'String VFX 桥接未返回成功状态');
+    return result;
+  };
+
+  const getVfxStatus = async () => {
+    if (isDebugPage)
+      return { ok: true, available: false, debug: true, reason: '调试页不调用 ACT VFX 桥接' };
+    return await callOverlayHandler({ call: 'stringVfx', action: 'status' });
+  };
+
   const sendBroadcast = (text) => {
     callOverlayHandler({
       call: 'broadcast',
@@ -326,6 +403,9 @@
     placeSave,
     placeLoad,
     placeClear,
+    pictoAct,
+    getVfxStatus,
+    normalizePictoActPayload,
     getClearMarkQueue,
     getLegalityMarkType,
   };

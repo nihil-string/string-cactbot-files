@@ -317,6 +317,28 @@ const myDmuP5SymphonySpreadDirections = {
     D4: '右偏上',
   },
 };
+const myDmuP5SymphonySpreadDir16 = {
+  [myDmuP5SymphonySpreadSchemes.eden]: {
+    MT: 0,
+    ST: 14,
+    H1: 4,
+    H2: 8,
+    D1: 6,
+    D2: 10,
+    D3: 2,
+    D4: 12,
+  },
+  [myDmuP5SymphonySpreadSchemes.omega]: {
+    MT: 1,
+    ST: 15,
+    H1: 5,
+    H2: 11,
+    D1: 7,
+    D2: 9,
+    D3: 3,
+    D4: 13,
+  },
+};
 const myDmuP5FloodWaves = {
   '117.662|89.372|-0.785': 1,
   '103.532|75.242|-0.785': 1,
@@ -440,6 +462,38 @@ const myDmuP5CalloutEnabled = (data) =>
   data.myDmuPhase === 'p5' && myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true);
 
 const myDmuFl = (data) => data.stringFL ?? globalThis.Util?.string;
+
+const myDmuVfxNamespaceRegex = '^StringDMU_';
+const myDmuP5SymphonyVfxRegex = '^StringDMU_P5_Symphony_';
+
+const myDmuVfxEnabled = (data, key) =>
+  myDmuBooleanConfig(data, 'MyDMU_Vfx', false) && myDmuBooleanConfig(data, key, false);
+
+const myDmuReportVfxError = (data, note, error) => {
+  if (data.myDmuVfxErrorLogged)
+    return;
+  data.myDmuVfxErrorLogged = true;
+  myDmuActLog(`VFX调用失败：${note}`, { error: error?.message ?? error?.toString?.() ?? error });
+};
+
+const myDmuInvokeVfx = (data, commands, note) => {
+  const invoke = myDmuFl(data)?.pictoAct;
+  if (typeof invoke !== 'function') {
+    myDmuReportVfxError(data, note, new Error('String运行库版本过旧或未加载'));
+    return;
+  }
+  try {
+    Promise.resolve(invoke(commands)).catch((error) => myDmuReportVfxError(data, note, error));
+  } catch (error) {
+    myDmuReportVfxError(data, note, error);
+  }
+};
+
+const myDmuClearVfx = (data, regex = myDmuVfxNamespaceRegex) => {
+  if (!myDmuBooleanConfig(data, 'MyDMU_Vfx', false))
+    return;
+  myDmuInvokeVfx(data, { Action: 'Remove', Regex: regex }, '清理绝妖星绘制');
+};
 
 const myDmuNormalizeHeadmarkerId = (id) => id?.toString().toUpperCase().padStart(4, '0');
 
@@ -595,6 +649,45 @@ const myDmuP5SymphonySpreadText = (data) => {
     return '八方分散';
   }
   return `八方分散，${direction}`;
+};
+
+const myDmuDrawP5SymphonySpread = (data) => {
+  if (!myDmuVfxEnabled(data, 'MyDMU_P5SymphonyVfx'))
+    return;
+  const scheme = data.triggerSetConfig?.MyDMU_P5SymphonySpreadScheme ??
+    myDmuP5SymphonySpreadSchemes.eden;
+  const ownRole = myDmuGetRpByName(data, data.me);
+  const directions = myDmuP5SymphonySpreadDir16[scheme];
+  const ownDirection = directions?.[ownRole];
+  if (ownDirection === undefined) {
+    myDmuActLog('P5 癫狂八方VFX职能无法识别', { ownRole, scheme });
+    return;
+  }
+
+  const commands = [
+    { Action: 'Remove', Regex: myDmuP5SymphonyVfxRegex },
+    {
+      Tag: 'StringDMU_P5_Symphony_OwnLine',
+      Omen: 'm131om_setu0f',
+      t: 12,
+      O: [100, 100],
+      Dir16: ownDirection,
+      Scale: [0.1, 20, 0.1],
+    },
+  ];
+  for (const role of myDmuRoleOrder) {
+    commands.push({
+      Tag: `StringDMU_P5_Symphony_Point_${role}`,
+      Omen: 'm0532om_don01x',
+      t: 12,
+      O: [100, 100],
+      Dir16: directions[role],
+      Pos: [0, role === 'MT' || role === 'ST' ? -9 : -7.5],
+      Scale: [0.5, 0.5, 20],
+      Color: role === ownRole ? [1, 1, 5, 5] : [3, 0.6, 0.4, 1],
+    });
+  }
+  myDmuInvokeVfx(data, commands, 'P5 癫狂交响曲八方');
 };
 
 const myDmuEnsureP5State = (data) => {
@@ -1387,6 +1480,7 @@ const myDmuResetAll = (data) => {
 
 const myDmuInitState = () => ({
   myDmuPhase: 'p1',
+  myDmuVfxErrorLogged: false,
   myDmuSpeech: {},
   myDmuMarkState: myDmuNewMarkState(),
   myDmuP1GravenCount: 0,
@@ -3502,6 +3596,12 @@ Options.Triggers.push({
   timelineFile: '绝妖星-自用.txt',
   config: [
     {
+      id: 'MyDMU_Vfx',
+      name: { en: '自用：启用 VFX 场地绘制' },
+      type: 'checkbox',
+      default: false,
+    },
+    {
       id: 'MyDMU_AutoMarkV5',
       name: { en: '自用：启用自动标点' },
       type: 'checkbox',
@@ -3653,6 +3753,12 @@ Options.Triggers.push({
       default: myDmuP5SymphonySpreadSchemes.eden,
     },
     {
+      id: 'MyDMU_P5SymphonyVfx',
+      name: { en: '自用：P5 癫狂八方 VFX' },
+      type: 'checkbox',
+      default: false,
+    },
+    {
       id: 'MyDMU_P5MitigationChannel',
       name: { en: '自用：P5 减伤聊天频道' },
       type: 'select',
@@ -3675,6 +3781,7 @@ Options.Triggers.push({
         const nextPhase = myDmuPhaseStarts[matches.id];
         if (nextPhase === undefined)
           return;
+        myDmuClearVfx(data);
         if (data.myDmuPhase === 'p4' && nextPhase !== 'p4')
           myDmuCancelP4Timers(data);
         data.myDmuPhase = nextPhase;
@@ -4692,6 +4799,14 @@ Options.Triggers.push({
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p5SymphonySpread'),
+    },
+    {
+      id: '绝妖星 P5 癫狂交响曲八方VFX',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB50', capture: false },
+      condition: (data) => myDmuVfxEnabled(data, 'MyDMU_P5SymphonyVfx'),
+      suppressSeconds: 1,
+      run: (data) => myDmuDrawP5SymphonySpread(data),
     },
     {
       id: '绝妖星 P5 癫狂交响曲死刑',
