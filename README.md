@@ -39,17 +39,12 @@ D:\ACT\NewMoe-Technology\ACT.DieMoe\Plugins\ACT.OverlayPlugin\cactbot\user\raidb
 
 ## 自动标点
 
-自动标点默认关闭；需要同时打开 cactbot 里的“自用：启用自动标点”和对应机制标点开关。需要职能优先级的机制仍要打开 String 职能悬浮窗确认 `MT/ST/H1/H2/D1-D4` 分配：
+自动标点默认关闭；需要同时打开 cactbot 里的“启用自动标点”和对应机制标点开关。需要职能优先级的机制仍要打开 String 职能悬浮窗确认 `MT/ST/H1/H2/D1-D4` 分配：
 
 ```text
 https://nihil-string.github.io/string-runtime-overlay/
 ```
 
-## VFX 场地绘制
+## PictoACT 桥接
 
-VFX 默认关闭，当前首个机制是绝妖星 P5 癫狂交响曲八方。使用时需要：
-
-- 加载本仓库新版 `StringDownloader.dll`。
-- 启用 OverlayPlugin 与 Triggernometry/PictoACT。
-- 同时打开 cactbot 中的“自用：启用 VFX 场地绘制”和“自用：P5 癫狂八方 VFX”。
-- 确认 String 职能 `MT/ST/H1/H2/D1-D4` 正确。
+新版 `StringDownloader.dll` 和 String运行库只提供底层 PictoACT 调用能力。绝妖星触发器当前没有 VFX 开关，也不绑定任何机制，不会自动画图。
