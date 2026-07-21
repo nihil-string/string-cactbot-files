@@ -1,0 +1,7 @@
+{
+  "version": "0.8.24.0",
+  "sha256": "9B831E660715B21DA86316E7BFB3D61E68807CB30805206FCC558B5505979488",
+  "nativePayloadVersion": "0.4.9-native",
+  "nativePayloadSha256": "DE86F58E9AB8A9764FAE76E5E0EA9B86349700F329B5B97E9F142DFF33B6BB5A",
+  "nativePayloadResource": "StringDownloader.Native.StringVfxNative.x64.dll"
+}

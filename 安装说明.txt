@@ -5,13 +5,33 @@ StringDownloader 安装说明
 3. 下载器固定连接公开仓库 nihil-string/string-cactbot-files，不需要 token。
 4. 勾选要更新的文件，点击“开始下崽”。
 5. 下载完成后重载 Raidboss 悬浮窗。
+6. 点击“检查下崽器更新”可以更新 StringDownloader 本身；新 DLL 会在退出 ACT 后替换，下次启动生效。
+7. 角色登录并脱战后，先开启 `NativeVfxEnabled` 并等待状态可用，再点击原生 VFX 自检；它只在自己脚下让最初已验证的 FFXIV AVFX 圆完成 0→1→同一句柄颜色更新仍为1→TTL 删除为0。DLL 会核验稳定 tag、更新计数和最终清零。
 
-PictoACT 桥接：
-- 本 DLL 只提供底层调用能力；绝妖星触发器当前不绑定任何 VFX，也不会自动画图。
-- 更新 DLL 后需重启 ACT，单独重载 Raidboss 不会更新桥接插件。
+原生 VFX 后端：
+- 当前目标基线为 Controller 0.8.24.0、Native 0.4.9-native、认证 wire v5；公共 `Util.string.vfx` API 仍为 v5，公开生产能力只包含 circle/donut/sector/rect/line。Overlay `status/beginSession` 要求 DLL 本机生成并注入 String运行库的 256-bit 每安装 capability，旧运行库和错误 capability 失败关闭；后续帧仍由短期 bearer 授权。单个无 SCD 引用的原生 arrow GameVfx 在当前游戏版本人工验收前仅供插件页内部独占 3 秒校准，普通 cactbot/DMU 帧会整帧失败关闭；fixedLabel 同样失败关闭，绝妖星用原生状态圆替代。
+- 健康态中的 activeDrawings 是逻辑对象数，activeResourceUnits 是精确底层 AVFX 单位数（包括内部校准 Arrow 在内均为 1）。native 结果未知时 resourceCountExact=false，只能读取残留资源上界，不能据此宣称物理清零。零态必须同时满足精确标志为真、两个计数和残留上界均为 0，活动资源硬上限不超过 64。
+- 网页不能选择 renderer/depth mode，也不能提交 AVFX 路径或任意后端命令。生产运行时不启用 Geometry renderer。
+- 绝妖星绘图只允许 String Native；总开关、阶段开关和个人指路开关在对应回放及人工验证前默认关闭。
+- VFX 自检不存在无鉴权或自动触发入口；只允许插件页手动按钮，或启动时显式授予的当前用户一次性 capability named event。两者都不依赖进本或 cactbot，也不会覆盖正在运行的 VFX 会话。
+- 用户只需在 ACT 加载 StringDownloader.dll；原生 payload 已内嵌，不是 Dalamud 插件，也不需要单独安装。
+- 生产与原生自检都只使用 String Native；不包含 PictoACT 适配器、后端选择器或失败回退，也不依赖 Triggernometry、PictoACT、PostNamazu。
+- 插件页的 `NativeVfxEnabled` 是默认关闭并记忆用户选择的本机 Native 生命周期总开关，不是绝妖星绘图开关。缺失、损坏、结构非法或非规范配置全部保持关闭，不加载/rebind payload，也不安装 Hook；只有用户明确保存的 `true` 才会在下次 ACT 启动恢复开启。开启后才会完成游戏门禁、加载或重绑内嵌 payload、安装 Framework hooks 和首次零对象清理；自检按钮只是首个创建 VFX 的入口。首次开启前必须单独确认可以开始真实测试。
+- 同时运行多个游戏客户端时，必须先让所有客户端登录，再从已经提升且同时带 `STRING_VFX_EXPECTED_GAME_PID=<测试 PID>`、`STRING_VFX_EXPECTED_GAME_CREATION_FILETIME=<16 位大写十六进制创建 FILETIME>` 的父进程直接启动 `Advanced Combat Tracker.exe`。0.8.0+ 会在 worker 启动前锁存完整测试进程身份；目标退出、PID 复用、repository 回落或环境丢失都失败关闭，绝不切换到另一个客户端。呆萌启动器可能丢弃自定义环境，不用于受控 canary。管理员 ACT 点击无效时不要重复点击或使用 SendKeys。
+- 自动化手动自检只接受默认关闭的当前用户一次性事件能力：启动前设置随机 256-bit（64 个小写十六进制字符）`STRING_VFX_MANUAL_SELFTEST_CAPABILITY`，待审计 Ready/零对象后仅 signal 一次。不得开放无鉴权 WebSocket/Overlay 自检动作或使用窗口注入。
+- 关闭 `NativeVfxEnabled` 会立即拒绝新绘图、撤销所有 VFX 会话并核验精确 `0/0`，然后恢复本 runtime 拥有的 `Framework::Tick/Destroy` hook、停止 IPC/心跳；界面确认关闭前不要把它当作已卸载。payload 本身保持 pinned/dormant 到游戏自然退出，不执行远程 `FreeLibrary`。
+- 重新开启会完整重跑目标身份、游戏版本、哈希、特征码、hook 所有权、exact rebind 与 startup cleanup；任一步失败都保持不可用，不回退第三方后端。绝妖星只有在本地总开关、`MyDMU_StringNativeVfx`、对应阶段开关同时开启时才会绘图。
+- 测试异常时不要重试、热重载、强杀 ACT，也不要关闭或强杀 FFXIV；只等待 TTL/租约清理并查看状态与 StringVfxAudit.jsonl。
+- 自检期间如果进入战斗、切换/重入区域、停用插件或退出 ACT，会立即撤销会话并核验清零。
+- VFX 状态不公开原始所有权 tag 或会话凭据；自检和清理证据保存在 ACT 配置目录的 StringVfxAudit.jsonl。
+- 更新 DLL 后需重启 ACT，单独重载 Raidboss 不会更新原生控制插件。
+- ARR 测试专指 A Realm Recorded Lite 的真实 .dat。受限测试桥默认关闭，只能输出带 replayEpoch/sequence/replayMs 的白名单 semantic LogLine；不向 JavaScript 暴露原始 packet bytes。stop、seek、unload、断桥、overflow 或 sequence gap 都必须失败关闭并在新 epoch 前核验零残留。
+- 离线 .dat 解析或 fixture 通过不等于真实 ARR 可见验收；P1-P5 可见绘图、pause/seek/倍速故障矩阵和最终零残留没有完整证据前，不得默认启用绘图。
 
 说明：
 - 插件只更新勾选文件，不会删除其他触发器。
+- 启用启动自动更新后，触发器文件和下崽器本身都会检查更新。
+- String 职能分配悬浮窗由插件自动创建；已有窗口不会重复添加。
 - 如果旧版本曾保存过私有仓库配置，新版本会自动改回公开下载源。
-- 自动标点默认关闭；需要同时打开 cactbot 里的“启用自动标点”和对应机制标点开关。需要职能优先级的机制仍要打开 String 职能悬浮窗确认分配。
-- VFX 桥接只允许调用 PictoACT，不开放任意 Triggernometry NamedCallback。
+- 插件会把“绝妖星”里旧保存的自动标点开关重置为关闭；标点需要在职能悬浮窗里本次手动启用。
+- VFX 入口只接受白名单化的绘图意图，不开放任意原生地址、资源路径或 Triggernometry NamedCallback。
