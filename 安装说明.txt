@@ -9,7 +9,7 @@ StringDownloader 安装说明
 7. 角色登录并脱战后，先开启 `NativeVfxEnabled` 并等待状态可用，再点击原生 VFX 自检；它只在自己脚下让最初已验证的 FFXIV AVFX 圆完成 0→1→同一句柄颜色更新仍为1→TTL 删除为0。DLL 会核验稳定 tag、更新计数和最终清零。
 
 原生 VFX 后端：
-- 当前目标基线为 Controller 0.8.24.0、Native 0.4.9-native、认证 wire v5；公共 `Util.string.vfx` API 仍为 v5，公开生产能力只包含 circle/donut/sector/rect/line。Overlay `status/beginSession` 要求 DLL 本机生成并注入 String运行库的 256-bit 每安装 capability，旧运行库和错误 capability 失败关闭；后续帧仍由短期 bearer 授权。单个无 SCD 引用的原生 arrow GameVfx 在当前游戏版本人工验收前仅供插件页内部独占 3 秒校准，普通 cactbot/DMU 帧会整帧失败关闭；fixedLabel 同样失败关闭，绝妖星用原生状态圆替代。
+- 当前目标基线为 Controller 0.8.25.0、Native 0.4.9-native、认证 wire v5；公共 `Util.string.vfx` API 仍为 v5，公开生产能力只包含 circle/donut/sector/rect/line。Overlay `status/beginSession` 要求 DLL 本机生成并注入 String运行库的 256-bit 每安装 capability，旧运行库和错误 capability 失败关闭；后续帧仍由短期 bearer 授权。单个无 SCD 引用的原生 arrow GameVfx 在当前游戏版本人工验收前仅供插件页内部独占 3 秒校准，普通 cactbot/DMU 帧会整帧失败关闭；fixedLabel 同样失败关闭，绝妖星用原生状态圆替代。
 - 健康态中的 activeDrawings 是逻辑对象数，activeResourceUnits 是精确底层 AVFX 单位数（包括内部校准 Arrow 在内均为 1）。native 结果未知时 resourceCountExact=false，只能读取残留资源上界，不能据此宣称物理清零。零态必须同时满足精确标志为真、两个计数和残留上界均为 0，活动资源硬上限不超过 64。
 - 网页不能选择 renderer/depth mode，也不能提交 AVFX 路径或任意后端命令。生产运行时不启用 Geometry renderer。
 - 绝妖星绘图只允许 String Native；总开关、阶段开关和个人指路开关在对应回放及人工验证前默认关闭。

@@ -6,6 +6,7 @@
   const safeEncounterConfig = Object.freeze({
     MyDMU_AutoMarkV5: false,
     MyDMU_LocalMarkV3: false,
+    MyDMU_PartyChatEnabled: false,
     MyDMU_StringNativeVfx: false,
     MyDMU_StringNativeVfxP1: false,
     MyDMU_StringNativeVfxP2: false,
@@ -18,7 +19,6 @@
     MyDMU_P1BeamOrder: 'H2/H1/ST/MT/D1/D2/D3/D4',
     MyDMU_P1Line23Strategy: 'mt_st',
     MyDMU_P1TeleportStrategy: 'standard',
-    MyDMU_ForceTTS: true,
     MyDMU_P2TowerMarkV3: false,
     MyDMU_P2Pair2222IdleOddMode: 'role',
     MyDMU_P2OddStrategy: 'original',
@@ -79,6 +79,8 @@
   const tankJobs = [1, 3, 19, 21, 32, 37];
   const healerJobs = [6, 24, 28, 33, 40];
   const dpsJobs = [2, 4, 5, 7, 20, 22, 23, 25, 26, 27, 29, 30, 31, 34, 35, 36, 38, 39, 41, 42];
+  const roleOverlayRoles = Object.freeze(['MT', 'ST', 'H1', 'H2', 'D1', 'D2', 'D3', 'D4']);
+  const roleOverlayLeaseMilliseconds = 4000;
   const defaultJobSort = [
     21, // WAR
     32, // DRK
@@ -112,6 +114,8 @@
   let arrReplayPartyCandidates = [];
   let arrReplayPartyReady = false;
   let arrReplayPartyPreservedForResume = false;
+  let roleOverlayParty = [];
+  let roleOverlayLastSeen = Number.NEGATIVE_INFINITY;
   let encounterState = {
     zoneId: 0,
     inEncounter: false,
@@ -151,6 +155,35 @@
 
   const createRoleArray = (prefix, count) =>
     [...Array(count).keys()].map((index) => `${prefix}${index + 1}`);
+
+  const monotonicMilliseconds = () => globalThis.performance?.now?.() ?? Date.now();
+
+  const normalizePartyId = (value) => value?.toString().trim().toUpperCase() ?? '';
+
+  const isValidRoleOverlayParty = (records) => {
+    if (!Array.isArray(records) || records.length !== roleOverlayRoles.length)
+      return false;
+    const ids = records.map((record) => normalizePartyId(record?.id));
+    const roles = records.map((record) => record?.rp?.toString().trim().toUpperCase() ?? '');
+    if (ids.some((id) => id === '') || new Set(ids).size !== roleOverlayRoles.length ||
+        new Set(roles).size !== roleOverlayRoles.length ||
+        !roleOverlayRoles.every((role) => roles.includes(role)))
+      return false;
+
+    const liveIds = lastLiveParty
+      .filter((member) => member.inParty)
+      .map((member) => normalizePartyId(member.id));
+    return liveIds.length === roleOverlayRoles.length &&
+      new Set(liveIds).size === roleOverlayRoles.length &&
+      ids.every((id) => liveIds.includes(id));
+  };
+
+  const isRoleOverlayConnected = () => {
+    if (isDebugPage || arrReplayPartyMode)
+      return true;
+    return monotonicMilliseconds() - roleOverlayLastSeen <= roleOverlayLeaseMilliseconds &&
+      isValidRoleOverlayParty(roleOverlayParty);
+  };
 
   const defaultSort = () => {
     const tankRoles = ['MT', 'ST', ...createRoleArray('T', 14)];
@@ -2055,6 +2088,11 @@
       return;
     if (!Array.isArray(msg.msg?.party) || msg.msg.party.length === 0)
       return;
+    if (msg.source === 'stringRuntimeJS') {
+      roleOverlayParty = msg.msg.party.map((member) => ({ ...member }));
+      if (isValidRoleOverlayParty(roleOverlayParty))
+        roleOverlayLastSeen = monotonicMilliseconds();
+    }
     externalPartyRp = msg.msg.party;
     if (externalPartyRp !== undefined && !arrReplayPartyMode)
       updatePartyRp();
@@ -2062,6 +2100,8 @@
 
   if (!/config\.html/.test(location.href)) {
     sendBroadcast('requestData');
+    const roleOverlayHeartbeatTimer = setInterval(() => sendBroadcast('requestData'), 1000);
+    roleOverlayHeartbeatTimer?.unref?.();
     addOverlayListener('PartyChanged', (event) => {
       clearTimeout(partyUpdateTimer);
       if (event.stringArrReplaySynthetic === true || event.stringArrReplayRestore === true) {
@@ -2119,6 +2159,7 @@
     getEncounterConfigSnapshot,
     getSafeEncounterConfigSnapshot,
     requestEncounterState,
+    isRoleOverlayConnected,
     getClearMarkQueue,
     getLegalityMarkType,
   };

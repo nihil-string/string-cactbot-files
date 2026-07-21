@@ -26,7 +26,7 @@ https://github.com/nihil-string/string-cactbot-files/raw/main/StringDownloader.z
 
 如果旧版下崽器提示“私人仓库需要 token”或无法更新，需要先关闭 ACT，手动替换为这里的新版 DLL，再重新打开 ACT。
 
-当前发布基线为 Controller `0.8.24.0`、内嵌 Native `0.4.9-native`、认证 wire v5。替换 DLL 后必须重启 ACT，单独重载 Raidboss 不会更新插件。
+当前发布基线为 Controller `0.8.25.0`、内嵌 Native `0.4.9-native`、认证 wire v5。替换 DLL 后必须重启 ACT，单独重载 Raidboss 不会更新插件。
 
 插件页的“检查下崽器更新”会先校验 manifest、版本和 SHA-256；下载成功后在 ACT 正常退出时替换 DLL，下次启动生效。
 
@@ -42,11 +42,15 @@ D:\ACT\NewMoe-Technology\ACT.DieMoe\Plugins\ACT.OverlayPlugin\cactbot\user\raidb
 
 ## 自动标点
 
-自动标点默认关闭；需要同时打开 cactbot 里的“启用自动标点”和对应机制标点开关。需要职能优先级的机制仍要打开 String 职能悬浮窗确认 `MT/ST/H1/H2/D1-D4` 分配：
+自动标点默认关闭；需要在 String 职能悬浮窗的“本次设置”中同时打开自动标点总开关和对应机制开关，并保持悬浮窗在线、8 人职能与当前小队完全一致：
 
 ```text
 https://nihil-string.github.io/string-runtime-overlay/
 ```
+
+## 提示输出
+
+个人机制提示只显示 raidboss 屏幕文字，不发送个人 TTS。共享聊天提示只有“发送 `/p`”或“不发送”两种状态，默认不发送；悬浮窗关闭或职能失效时不会产生新的自动标点或小队消息。
 
 ## String Native VFX
 
