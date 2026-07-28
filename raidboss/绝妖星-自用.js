@@ -526,30 +526,17 @@ const myDmuP5SymphonyBuffs = {
   },
 };
 const myDmuP5SymphonySpreadSchemes = {
-  eden: 'eden',
-  omega: 'omega',
+  regular: 'regular',
+  leaning: 'leaning',
 };
-const myDmuP5SymphonySpreadDirections = {
-  [myDmuP5SymphonySpreadSchemes.eden]: {
-    MT: '上北',
-    ST: '右上',
-    H1: '左西',
-    H2: '下南',
-    D1: '左下',
-    D2: '右下',
-    D3: '左上',
-    D4: '右东',
-  },
-  [myDmuP5SymphonySpreadSchemes.omega]: {
-    MT: '上偏左',
-    ST: '上偏右',
-    H1: '左偏下',
-    H2: '右偏下',
-    D1: '下偏左',
-    D2: '下偏右',
-    D3: '左偏上',
-    D4: '右偏上',
-  },
+const myDmuP5SymphonySpreadDirectionLabels = {
+  [myDmuP5SymphonySpreadSchemes.regular]: [
+    '下南', '右下', '右东', '右上', '上北', '左上', '左西', '左下',
+  ],
+  [myDmuP5SymphonySpreadSchemes.leaning]: [
+    '右偏下', '下偏右', '右偏上', '上偏右',
+    '上偏左', '左偏上', '左偏下', '下偏左',
+  ],
 };
 const myDmuP5FloodWaves = {
   '117.662|89.372|-0.785': 1,
@@ -620,7 +607,11 @@ const myDmuP5MitigationText = (entry) => {
 const myDmuRoleOverlayConnected = (data) =>
   myDmuFl(data)?.isRoleOverlayConnected?.() === true;
 
+const myDmuArrReplayActive = (data) =>
+  myDmuFl(data)?.isArrReplayActive?.() === true;
+
 const myDmuPartyChatEnabled = (data) =>
+  !myDmuArrReplayActive(data) &&
   myDmuRoleOverlayConnected(data) &&
   myDmuBooleanConfig(data, 'MyDMU_PartyChatEnabled', false);
 
@@ -786,7 +777,9 @@ const myDmuMarkConfigured = (data, key) =>
   myDmuAutoMarkEnabled(data) && myDmuBooleanConfig(data, key, false);
 
 const myDmuMarkEnabled = (data, key) =>
-  myDmuRoleOverlayConnected(data) && myDmuMarkConfigured(data, key);
+  !myDmuArrReplayActive(data) &&
+  myDmuRoleOverlayConnected(data) &&
+  myDmuMarkConfigured(data, key);
 
 const myDmuAnyMarkEnabled = (data) => [
   'MyDMU_P1PoisonMarkV3',
@@ -862,12 +855,167 @@ const myDmuQueryCombatants = async (data, actorIds, scope = 'unknown') => {
   return result.combatants;
 };
 
-const myDmuRetryAction = (action, count = 6, intervalMs = 500) => {
+const myDmuTaskLifecycleRegistry = globalThis.__stringDmuTaskLifecycle ??= {
+  nextToken: 0,
+  currentData: undefined,
+  listenersInstalled: false,
+  cleanupPromise: undefined,
+};
+
+const myDmuTaskLifecycleState = (data) => data?.myDmuTaskLifecycle;
+
+const myDmuCaptureTaskFence = (data) => {
+  const state = myDmuTaskLifecycleState(data);
+  const replay = myDmuFl(data)?.getArrReplayClock?.();
+  return {
+    token: state?.token,
+    arrGeneration: replay?.active === true && Number.isSafeInteger(replay.generation)
+      ? replay.generation
+      : undefined,
+  };
+};
+
+const myDmuTaskFenceCurrent = (data, fence) => {
+  const state = myDmuTaskLifecycleState(data);
+  if (state?.active !== true || state.token !== fence?.token ||
+      myDmuTaskLifecycleRegistry.currentData !== data)
+    return false;
+  if (fence.arrGeneration === undefined)
+    return true;
+  const replay = myDmuFl(data)?.getArrReplayClock?.();
+  return replay?.active === true && replay.generation === fence.arrGeneration;
+};
+
+const myDmuCancelOwnedTask = (data, key) => {
+  const state = myDmuTaskLifecycleState(data);
+  const task = state?.tasks?.[key];
+  if (task === undefined)
+    return false;
+  delete state.tasks[key];
+  if (task.kind === 'arr')
+    task.runtime.cancelArrReplayTask(task.handle);
+  else
+    clearTimeout(task.handle);
+  return true;
+};
+
+const myDmuCancelTaskGeneration = (data, reason) => {
+  const state = myDmuTaskLifecycleState(data);
+  if (state?.active !== true)
+    return false;
+  state.active = false;
+  state.invalidatedReason = reason;
+  for (const key of Object.keys(state.tasks))
+    myDmuCancelOwnedTask(data, key);
+  return true;
+};
+
+const myDmuStartTaskGeneration = (data, reason) => {
+  myDmuCancelTaskGeneration(data, `${reason}:replace`);
+  const state = {
+    token: ++myDmuTaskLifecycleRegistry.nextToken,
+    active: true,
+    reason,
+    invalidatedReason: undefined,
+    tasks: {},
+    pendingPromises: new Set(),
+    createdTasks: 0,
+    peakTasks: 0,
+  };
+  data.myDmuTaskLifecycle = state;
+  myDmuTaskLifecycleRegistry.currentData = data;
+  return state;
+};
+
+const myDmuTrackPromise = (data, promise, label, fence = myDmuCaptureTaskFence(data)) => {
+  const state = myDmuTaskLifecycleState(data);
+  if (state === undefined || typeof promise?.then !== 'function')
+    return Promise.resolve(false);
+  const pending = { label, fence };
+  state.pendingPromises.add(pending);
+  return Promise.resolve(promise)
+    .then(
+      (value) => myDmuTaskFenceCurrent(data, fence) ? value : false,
+      (error) => {
+        if (!myDmuTaskFenceCurrent(data, fence))
+          return false;
+        throw error;
+      },
+    )
+    .finally(() => state.pendingPromises.delete(pending));
+};
+
+const myDmuObservePromise = (data, promise, label, fence = myDmuCaptureTaskFence(data)) => {
+  const tracked = myDmuTrackPromise(data, promise, label, fence);
+  void tracked.catch((error) => myDmuActLog('异步任务失败', {
+    label,
+    error: `${error}`,
+    fallback: false,
+  }));
+  return tracked;
+};
+
+const myDmuScheduleOwnedTask = (data, key, delayMilliseconds, callback) => {
+  if (typeof key !== 'string' || key.length === 0 || key.length > 200)
+    throw new Error(`DMU task key 非法：${key}`);
+  const delay = Number(delayMilliseconds);
+  if (!Number.isFinite(delay) || delay < 0 || delay > 86400000)
+    throw new Error(`DMU task 延迟非法：${delayMilliseconds}`);
+  if (typeof callback !== 'function')
+    throw new Error(`DMU task callback 非函数：${key}`);
+  const state = myDmuTaskLifecycleState(data);
+  if (state?.active !== true || myDmuTaskLifecycleRegistry.currentData !== data)
+    return undefined;
+  myDmuCancelOwnedTask(data, key);
+  const fence = myDmuCaptureTaskFence(data);
+  const task = {
+    kind: 'wall',
+    handle: undefined,
+    runtime: undefined,
+    fence,
+  };
+  const invoke = () => {
+    if (state.tasks[key] !== task)
+      return;
+    delete state.tasks[key];
+    if (!myDmuTaskFenceCurrent(data, fence))
+      return;
+    const result = callback();
+    if (typeof result?.then === 'function')
+      return myDmuObservePromise(data, result, `timer:${key}`, fence);
+    return result;
+  };
+  const runtime = myDmuFl(data);
+  const replay = runtime?.getArrReplayClock?.();
+  if (replay?.active === true) {
+    if (typeof runtime.scheduleArrReplayTask !== 'function' ||
+        typeof runtime.cancelArrReplayTask !== 'function') {
+      throw new Error('ARR replay task scheduler API 不可用');
+    }
+    task.kind = 'arr';
+    task.runtime = runtime;
+    task.handle = runtime.scheduleArrReplayTask(invoke, Math.ceil(delay));
+  } else {
+    task.handle = setTimeout(invoke, delay);
+  }
+  state.tasks[key] = task;
+  state.createdTasks++;
+  state.peakTasks = Math.max(state.peakTasks, Object.keys(state.tasks).length);
+  return task.handle;
+};
+
+const myDmuRetryAction = (data, key, action, count = 6, intervalMs = 500) => {
   if (action())
-    return;
+    return true;
   if (count <= 0)
-    return;
-  setTimeout(() => myDmuRetryAction(action, count - 1, intervalMs), intervalMs);
+    return false;
+  myDmuScheduleOwnedTask(
+    data,
+    `retry:${key}`,
+    intervalMs,
+    () => myDmuRetryAction(data, key, action, count - 1, intervalMs),
+  );
+  return false;
 };
 
 const myDmuCacheSpeech = (data, key, text) => {
@@ -1036,7 +1184,7 @@ const myDmuNativeVfxSyncClock = (data) => {
   const previousClockKey = state.clockKey;
   const staleScopes = Object.keys(state.scopes);
   state.epoch++;
-  myDmuNativeVfxCancelAllTimers(state);
+  myDmuNativeVfxCancelAllTimers(data, state);
   state.scopes = {};
   state.scopeGenerations = {};
   state.logicalEvents = {};
@@ -1044,18 +1192,22 @@ const myDmuNativeVfxSyncClock = (data) => {
   state.clockKey = clock.key;
   const epoch = state.epoch;
   if (staleScopes.length > 0) {
-    void myDmuNativeVfxEnqueue(data, async () => {
-      for (const scope of staleScopes) {
-        const cleared = await myDmuNativeVfxClearPhysicalScope(
-          data,
-          scope,
-          `clock-change:${previousClockKey}->${clock.key}`,
-        );
-        if (!cleared)
-          return false;
-      }
-      return true;
-    }, epoch);
+    myDmuObservePromise(
+      data,
+      myDmuNativeVfxEnqueue(data, async () => {
+        for (const scope of staleScopes) {
+          const cleared = await myDmuNativeVfxClearPhysicalScope(
+            data,
+            scope,
+            `clock-change:${previousClockKey}->${clock.key}`,
+          );
+          if (!cleared)
+            return false;
+        }
+        return true;
+      }, epoch),
+      `native-vfx:clock-change:${previousClockKey}->${clock.key}`,
+    );
   }
   myDmuActLog('Native VFX lifecycle epoch advanced', {
     previousClockKey,
@@ -1069,38 +1221,35 @@ const myDmuNativeVfxSyncClock = (data) => {
 const myDmuNativeVfxScopeAllowed = (phase, scope) =>
   myDmuNativeVfxScopes[phase]?.includes(scope) === true;
 
-const myDmuNativeVfxCancelScopeTimer = (state, scope) => {
-  if (state.scopeTimers[scope] !== undefined)
-    clearTimeout(state.scopeTimers[scope]);
+const myDmuNativeVfxCancelScopeTimer = (data, state, scope) => {
+  myDmuCancelOwnedTask(data, `native-vfx:scope-expiry:${scope}`);
   delete state.scopeTimers[scope];
 };
 
-const myDmuNativeVfxCancelCommitTimer = (state, scope) => {
-  if (state.commitTimers[scope] !== undefined)
-    clearTimeout(state.commitTimers[scope]);
+const myDmuNativeVfxCancelCommitTimer = (data, state, scope) => {
+  myDmuCancelOwnedTask(data, `native-vfx:commit:${scope}`);
   delete state.commitTimers[scope];
 };
 
-const myDmuNativeVfxCancelClockTask = (state, key) => {
-  if (state.clockTasks[key] !== undefined)
-    clearTimeout(state.clockTasks[key]);
+const myDmuNativeVfxCancelClockTask = (data, state, key) => {
+  myDmuCancelOwnedTask(data, `native-vfx:clock:${key}`);
   delete state.clockTasks[key];
 };
 
-const myDmuNativeVfxCancelClockTasksForScope = (state, scope) => {
+const myDmuNativeVfxCancelClockTasksForScope = (data, state, scope) => {
   for (const key of Object.keys(state.clockTasks)) {
     if (key.startsWith(`${scope}:`) || key.startsWith(`${scope}.`))
-      myDmuNativeVfxCancelClockTask(state, key);
+      myDmuNativeVfxCancelClockTask(data, state, key);
   }
 };
 
-const myDmuNativeVfxCancelAllTimers = (state) => {
+const myDmuNativeVfxCancelAllTimers = (data, state) => {
   for (const scope of Object.keys(state.commitTimers))
-    myDmuNativeVfxCancelCommitTimer(state, scope);
+    myDmuNativeVfxCancelCommitTimer(data, state, scope);
   for (const scope of Object.keys(state.scopeTimers))
-    myDmuNativeVfxCancelScopeTimer(state, scope);
+    myDmuNativeVfxCancelScopeTimer(data, state, scope);
   for (const key of Object.keys(state.clockTasks))
-    myDmuNativeVfxCancelClockTask(state, key);
+    myDmuNativeVfxCancelClockTask(data, state, key);
 };
 
 const myDmuNativeVfxScheduleClockTask = (data, key, delayMilliseconds, action) => {
@@ -1113,28 +1262,23 @@ const myDmuNativeVfxScheduleClockTask = (data, key, delayMilliseconds, action) =
   const clock = myDmuNativeVfxSyncClock(data);
   const clockKey = clock.key;
   const epoch = state.epoch;
-  const target = clock.now + delay;
-  myDmuNativeVfxCancelClockTask(state, key);
-  const poll = () => {
-    if (state.epoch !== epoch || state.clockKey !== clockKey) {
+  myDmuNativeVfxCancelClockTask(data, state, key);
+  state.clockTasks[key] = myDmuScheduleOwnedTask(
+    data,
+    `native-vfx:clock:${key}`,
+    delay,
+    () => {
       delete state.clockTasks[key];
-      return;
-    }
-    const current = myDmuNativeVfxClock(data);
-    if (current.key !== clockKey) {
-      delete state.clockTasks[key];
-      myDmuNativeVfxSyncClock(data);
-      return;
-    }
-    if (current.now >= target) {
-      delete state.clockTasks[key];
-      void myDmuNativeVfxEnqueue(data, action, epoch);
-      return;
-    }
-    const remaining = target - current.now;
-    state.clockTasks[key] = setTimeout(poll, Math.min(250, Math.max(50, remaining)));
-  };
-  state.clockTasks[key] = setTimeout(poll, Math.min(250, Math.max(50, delay)));
+      if (state.epoch !== epoch || state.clockKey !== clockKey)
+        return;
+      const current = myDmuNativeVfxClock(data);
+      if (current.key !== clockKey) {
+        myDmuNativeVfxSyncClock(data);
+        return;
+      }
+      return myDmuNativeVfxEnqueue(data, action, epoch);
+    },
+  );
   return true;
 };
 
@@ -1185,9 +1329,14 @@ const myDmuNativeVfxCanonicalDrawings = (records, clock) => records
 
 const myDmuNativeVfxEnqueue = (data, action, epoch = myDmuEnsureNativeVfxState(data).epoch) => {
   const state = myDmuEnsureNativeVfxState(data);
+  const lifecycleBarrier = myDmuTaskLifecycleRegistry.cleanupPromise;
   state.chain = (state.chain ?? Promise.resolve())
     .catch(() => undefined)
-    .then(() => state.epoch === epoch ? action() : false);
+    .then(async () => {
+      if (lifecycleBarrier !== undefined)
+        await lifecycleBarrier;
+      return state.epoch === epoch ? action() : false;
+    });
   return state.chain;
 };
 
@@ -1206,7 +1355,7 @@ const myDmuNativeVfxClearPhysicalScope = async (data, scope, reason) => {
     state.blocked = true;
     state.cleanupStatus = 'scope-clear-failed';
     state.epoch++;
-    myDmuNativeVfxCancelAllTimers(state);
+    myDmuNativeVfxCancelAllTimers(data, state);
     state.scopes = {};
     state.scopeGenerations = {};
     state.logicalEvents = {};
@@ -1237,9 +1386,9 @@ const myDmuNativeVfxFailClosed = async (data, phase, scope, reason, error) => {
   state.lastError = `${error}`;
   delete state.scopes[scope];
   state.scopeGenerations[scope] = (state.scopeGenerations[scope] ?? 0) + 1;
-  myDmuNativeVfxCancelScopeTimer(state, scope);
-  myDmuNativeVfxCancelCommitTimer(state, scope);
-  myDmuNativeVfxCancelClockTasksForScope(state, scope);
+  myDmuNativeVfxCancelScopeTimer(data, state, scope);
+  myDmuNativeVfxCancelCommitTimer(data, state, scope);
+  myDmuNativeVfxCancelClockTasksForScope(data, state, scope);
   state.lastSubmittedCount = myDmuNativeVfxActiveCount(state);
   const cleaned = await myDmuNativeVfxClearPhysicalScope(data, scope, reason);
   myDmuActLog('Native VFX 失败关闭', {
@@ -1306,24 +1455,29 @@ const myDmuNativeVfxScheduleCommit = (data, scope, reason) => {
   const epoch = state.epoch;
   const generation = state.scopeGenerations[scope];
   const clockKey = state.clockKey ?? myDmuNativeVfxSyncClock(data).key;
-  state.commitTimers[scope] = setTimeout(() => {
-    myDmuNativeVfxCancelCommitTimer(state, scope);
-    if (state.epoch !== epoch || state.scopeGenerations[scope] !== generation ||
-        state.clockKey !== clockKey || myDmuNativeVfxClock(data).key !== clockKey) {
-      myDmuNativeVfxSyncClock(data);
-      return;
-    }
-    void myDmuNativeVfxEnqueue(
-      data,
-      () => myDmuNativeVfxCommit(data, scope, reason, generation, clockKey),
-      epoch,
-    );
-  }, 50);
+  state.commitTimers[scope] = myDmuScheduleOwnedTask(
+    data,
+    `native-vfx:commit:${scope}`,
+    50,
+    () => {
+      delete state.commitTimers[scope];
+      if (state.epoch !== epoch || state.scopeGenerations[scope] !== generation ||
+          state.clockKey !== clockKey || myDmuNativeVfxClock(data).key !== clockKey) {
+        myDmuNativeVfxSyncClock(data);
+        return;
+      }
+      return myDmuNativeVfxEnqueue(
+        data,
+        () => myDmuNativeVfxCommit(data, scope, reason, generation, clockKey),
+        epoch,
+      );
+    },
+  );
 };
 
 const myDmuNativeVfxScheduleScopeExpiry = (data, scope) => {
   const state = myDmuEnsureNativeVfxState(data);
-  myDmuNativeVfxCancelScopeTimer(state, scope);
+  myDmuNativeVfxCancelScopeTimer(data, state, scope);
   const generation = (state.scopeGenerations[scope] ?? 0) + 1;
   state.scopeGenerations[scope] = generation;
   const epoch = state.epoch;
@@ -1338,37 +1492,47 @@ const myDmuNativeVfxScheduleScopeExpiry = (data, scope) => {
     if (state.scopes[scope] !== undefined)
       state.scopes[scope].records = records;
     const remaining = Math.max(...records.map((record) => record.expiresAt - clock.now), 0);
-    state.scopeTimers[scope] = setTimeout(() => {
-      if (state.epoch !== epoch || state.scopeGenerations[scope] !== generation ||
-          state.clockKey !== clockKey || myDmuNativeVfxClock(data).key !== clockKey) {
-        myDmuNativeVfxSyncClock(data);
-        return;
-      }
-      const currentClock = myDmuNativeVfxSyncClock(data);
-      if (currentClock.key !== clockKey || state.epoch !== epoch ||
-          state.scopeGenerations[scope] !== generation)
-        return;
-      const live = myDmuNativeVfxLiveRecords(state.scopes[scope]?.records ?? [], currentClock);
-      if (live.length > 0) {
-        state.scopes[scope].records = live;
-        schedule();
-        return;
-      }
-      delete state.scopes[scope];
-      myDmuNativeVfxCancelScopeTimer(state, scope);
-      state.scopeGenerations[scope]++;
-      state.lastSubmittedCount = myDmuNativeVfxActiveCount(state);
-      void myDmuNativeVfxEnqueue(
-        data,
-        () => myDmuNativeVfxClearPhysicalScope(data, scope, `${scope}:ttl-expired`),
-        epoch,
-      );
-    }, clockKey.startsWith('arr:') ? 50 : Math.max(100, remaining + 100));
+    const delay = clockKey.startsWith('arr:')
+      ? Math.ceil(remaining)
+      : Math.max(100, remaining + 100);
+    state.scopeTimers[scope] = myDmuScheduleOwnedTask(
+      data,
+      `native-vfx:scope-expiry:${scope}`,
+      delay,
+      () => {
+        delete state.scopeTimers[scope];
+        if (state.epoch !== epoch || state.scopeGenerations[scope] !== generation ||
+            state.clockKey !== clockKey || myDmuNativeVfxClock(data).key !== clockKey) {
+          myDmuNativeVfxSyncClock(data);
+          return;
+        }
+        const currentClock = myDmuNativeVfxSyncClock(data);
+        if (currentClock.key !== clockKey || state.epoch !== epoch ||
+            state.scopeGenerations[scope] !== generation)
+          return;
+        const live = myDmuNativeVfxLiveRecords(state.scopes[scope]?.records ?? [], currentClock);
+        if (live.length > 0) {
+          state.scopes[scope].records = live;
+          schedule();
+          return;
+        }
+        delete state.scopes[scope];
+        state.scopeGenerations[scope]++;
+        state.lastSubmittedCount = myDmuNativeVfxActiveCount(state);
+        return myDmuNativeVfxEnqueue(
+          data,
+          () => myDmuNativeVfxClearPhysicalScope(data, scope, `${scope}:ttl-expired`),
+          epoch,
+        );
+      },
+    );
   };
   schedule();
 };
 
 const myDmuNativeVfxReplaceScope = (data, scope, build, reason = 'replace') => {
+  if (!myDmuTaskFenceCurrent(data, myDmuCaptureTaskFence(data)))
+    return false;
   const phase = scope.split('.')[0];
   if (!myDmuNativeVfxPhaseEnabled(data, phase))
     return false;
@@ -1409,15 +1573,19 @@ const myDmuNativeVfxReplaceScope = (data, scope, build, reason = 'replace') => {
     if (nextScopeCount > vfx.limits.maximumScopes)
       throw new Error(`活动 scope ${nextScopeCount} 超过硬上限 ${vfx.limits.maximumScopes}`);
     state.scopes[scope] = { records };
-    myDmuNativeVfxCancelCommitTimer(state, scope);
+    myDmuNativeVfxCancelCommitTimer(data, state, scope);
     myDmuNativeVfxScheduleScopeExpiry(data, scope);
     myDmuNativeVfxScheduleCommit(data, scope, `${scope}:${reason}`);
     return true;
   } catch (error) {
     myDmuActLog('Native VFX coverage gap', { scope, reason, error: `${error}`, fallback: false });
-    void myDmuNativeVfxEnqueue(
+    myDmuObservePromise(
       data,
-      () => myDmuNativeVfxFailClosed(data, phase, scope, reason, error),
+      myDmuNativeVfxEnqueue(
+        data,
+        () => myDmuNativeVfxFailClosed(data, phase, scope, reason, error),
+      ),
+      `native-vfx:fail-closed:${scope}`,
     );
     return false;
   }
@@ -1457,13 +1625,15 @@ const myDmuNativeVfxFilterScope = (data, scope, keep, reason = 'filter') => {
   if (records.length === 0)
     return myDmuNativeVfxClearScope(data, scope, `${reason}:empty`);
   state.scopes[scope] = { records };
-  myDmuNativeVfxCancelCommitTimer(state, scope);
+  myDmuNativeVfxCancelCommitTimer(data, state, scope);
   myDmuNativeVfxScheduleScopeExpiry(data, scope);
   myDmuNativeVfxScheduleCommit(data, scope, `${scope}:${reason}`);
   return true;
 };
 
 const myDmuNativeVfxClearScope = (data, scope, reason = 'clear', options = {}) => {
+  if (!myDmuTaskFenceCurrent(data, myDmuCaptureTaskFence(data)))
+    return false;
   const state = myDmuEnsureNativeVfxState(data);
   const preserveClockTasks = options.preserveClockTasks === true;
   const hadClockTask = !preserveClockTasks && Object.keys(state.clockTasks).some((key) =>
@@ -1472,16 +1642,20 @@ const myDmuNativeVfxClearScope = (data, scope, reason = 'clear', options = {}) =
     state.scopeTimers[scope] !== undefined || state.commitTimers[scope] !== undefined || hadClockTask;
   delete state.scopes[scope];
   state.scopeGenerations[scope] = (state.scopeGenerations[scope] ?? 0) + 1;
-  myDmuNativeVfxCancelScopeTimer(state, scope);
-  myDmuNativeVfxCancelCommitTimer(state, scope);
+  myDmuNativeVfxCancelScopeTimer(data, state, scope);
+  myDmuNativeVfxCancelCommitTimer(data, state, scope);
   if (!preserveClockTasks)
-    myDmuNativeVfxCancelClockTasksForScope(state, scope);
+    myDmuNativeVfxCancelClockTasksForScope(data, state, scope);
   state.lastSubmittedCount = myDmuNativeVfxActiveCount(state);
   if (!hadScope)
     return false;
-  void myDmuNativeVfxEnqueue(
+  myDmuObservePromise(
     data,
-    () => myDmuNativeVfxClearPhysicalScope(data, scope, `${scope}:${reason}`),
+    myDmuNativeVfxEnqueue(
+      data,
+      () => myDmuNativeVfxClearPhysicalScope(data, scope, `${scope}:${reason}`),
+    ),
+    `native-vfx:clear:${scope}`,
   );
   return true;
 };
@@ -1493,7 +1667,7 @@ const myDmuNativeVfxSwitchPhase = async (data, nextPhase, force = false) => {
     return true;
   state.epoch++;
   const epoch = state.epoch;
-  myDmuNativeVfxCancelAllTimers(state);
+  myDmuNativeVfxCancelAllTimers(data, state);
   state.scopes = {};
   state.scopeGenerations = {};
   state.logicalEvents = {};
@@ -1536,8 +1710,11 @@ const myDmuNativeVfxVerifyNpc = async (data, actorId, allowedNpcBaseIds, scope) 
   const cached = data.myDmuNativeVfxNpcBaseIdByActor[normalizedId];
   if (cached !== undefined && data.myDmuNativeVfxCombatantByActor[normalizedId] !== undefined)
     return allowedNpcBaseIds.has(cached);
+  const taskFence = myDmuCaptureTaskFence(data);
   try {
     const combatant = (await myDmuQueryCombatants(data, [normalizedId], scope))[0];
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return false;
     const npcBaseId = Number(combatant?.BNpcID ?? combatant?.BNpcBaseID ?? combatant?.NpcBaseId);
     if (!Number.isInteger(npcBaseId))
       throw new Error('未返回 BNpcID');
@@ -1563,6 +1740,8 @@ const myDmuNativeVfxVerifyNpc = async (data, actorId, allowedNpcBaseIds, scope) 
     });
     return false;
   } catch (error) {
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return false;
     myDmuActLog('Native VFX coverage gap', {
       scope,
       reason: 'combatant-query-failed',
@@ -1587,6 +1766,7 @@ const myDmuNativeVfxResolveFarNear = async (data, scope = 'p2.farNear') => {
     });
     return [];
   }
+  const taskFence = myDmuCaptureTaskFence(data);
   try {
     const positions = (await myDmuQueryCombatants(data, actorIds, scope))
       .map((combatant) => {
@@ -1597,10 +1777,14 @@ const myDmuNativeVfxResolveFarNear = async (data, scope = 'p2.farNear') => {
       })
       .filter((entry) => actorIds.includes(entry.id) && Number.isFinite(entry.distance))
       .sort((left, right) => left.distance - right.distance || left.id.localeCompare(right.id));
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return [];
     if (positions.length !== 8)
       throw new Error(`只返回 ${positions.length}/8 个小队成员坐标`);
     return [positions[0].id, positions.at(-1).id];
   } catch (error) {
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return [];
     myDmuActLog('Native VFX coverage gap', {
       scope,
       reason: 'combatant-query-failed',
@@ -1621,10 +1805,16 @@ const myDmuNativeVfxPartyActorIds = (data) => {
 const myDmuNativeVfxCaptureFence = (data) => {
   const state = myDmuEnsureNativeVfxState(data);
   const clock = myDmuNativeVfxSyncClock(data);
-  return { state, epoch: state.epoch, clockKey: clock.key };
+  return {
+    state,
+    epoch: state.epoch,
+    clockKey: clock.key,
+    taskFence: myDmuCaptureTaskFence(data),
+  };
 };
 
 const myDmuNativeVfxFenceCurrent = (data, fence) =>
+  myDmuTaskFenceCurrent(data, fence.taskFence) &&
   myDmuEnsureNativeVfxState(data) === fence.state &&
   fence.state.epoch === fence.epoch &&
   fence.state.clockKey === fence.clockKey &&
@@ -2248,6 +2438,51 @@ const myDmuP2TowerStandTemplates = {
   },
 };
 
+const myDmuP2BbyTowerStandTemplates = {
+  odd: {
+    doing: [
+      { x: -6.30, y: 4.70 },
+      { x: -5.66, y: 9.16 },
+      { x: 2.20, y: 6.50 },
+      { x: 8.19, y: 3.66 },
+    ],
+    standby: [
+      { x: -8.80, y: 2.50 },
+      { x: -5.66, y: 11.66 },
+      { x: 8.70, y: 2.34 },
+      { x: 9.59, y: 3.45 },
+    ],
+  },
+  even: {
+    doing: [
+      { x: -9.51, y: 6.27 },
+      { x: -8.30, y: 8.52 },
+      { x: 4.71, y: 7.72 },
+      { x: 8.69, y: 3.22 },
+    ],
+    standby: [
+      { x: -1.90, y: -3.50 },
+      { x: -3.20, y: 2.40 },
+      { x: 3.97, y: -3.55 },
+      { x: 3.20, y: 2.40 },
+    ],
+  },
+  oddMelee: {
+    doing: [
+      { x: -4.95, y: 4.95 },
+      { x: -8.00, y: 8.00 },
+      { x: 8.13, y: 8.13 },
+      { x: 5.66, y: 2.16 },
+    ],
+    standby: [
+      { x: -2.45, y: 2.45 },
+      { x: -9.00, y: 9.00 },
+      { x: 2.25, y: 2.65 },
+      { x: 2.65, y: 2.25 },
+    ],
+  },
+};
+
 const myDmuP2HeadingTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z);
 
 const myDmuP2PointInDirection = (from, heading, distance) => ({
@@ -2290,6 +2525,26 @@ const myDmuP2TowerPair = (data, round) => {
   return { left: pair[0], right: pair[1] };
 };
 
+const myDmuP2BbyGuidePoint = (pair, point) => {
+  const midpoint = {
+    x: (pair.left.x + pair.right.x) / 2,
+    z: (pair.left.z + pair.right.z) / 2,
+  };
+  const axisX = midpoint.x - 100;
+  const axisZ = midpoint.z - 100;
+  const axisLength = Math.hypot(axisX, axisZ);
+  if (axisLength < 0.001)
+    throw new Error('P2 八轮塔宝宝椅坐标缺少有效双塔中轴');
+  const outwardX = axisX / axisLength;
+  const outwardZ = axisZ / axisLength;
+  const rightX = -outwardZ;
+  const rightZ = outwardX;
+  return {
+    x: 100 + point.x * rightX + point.y * outwardX,
+    z: 100 + point.x * rightZ + point.y * outwardZ,
+  };
+};
+
 const myDmuP2TowerGuidePositions = (data, round) => {
   const pair = myDmuP2TowerPair(data, round);
   const partition = myDmuP2Partition(data, round);
@@ -2299,19 +2554,28 @@ const myDmuP2TowerGuidePositions = (data, round) => {
   const oddStrategy = myDmuP2OddStrategy(data);
   if (oddStrategy === undefined)
     throw new Error(`P2 第${round}轮奇数塔策略配置非法`);
-  const template = round % 2 === 0
-    ? myDmuP2TowerStandTemplates.even
+  const templateKey = round % 2 === 0
+    ? 'even'
     : oddStrategy === myDmuP2OddStrategies.melee
-      ? myDmuP2TowerStandTemplates.oddMelee
-      : myDmuP2TowerStandTemplates.odd;
-  const build = (entries, templates) => entries.map((entry, index) => {
+      ? 'oddMelee'
+      : 'odd';
+  const useBbyPos = myDmuP2UseBbyPos(data);
+  const template = useBbyPos
+    ? myDmuP2BbyTowerStandTemplates[templateKey]
+    : myDmuP2TowerStandTemplates[templateKey];
+  const build = useBbyPos
+    ? (entries, templates) => entries.map((entry, index) => ({
+      entry,
+      point: myDmuP2BbyGuidePoint(pair, templates[index]),
+    }))
+    : (entries, templates) => entries.map((entry, index) => {
     const current = templates[index];
     const tower = current.isLeft ? pair.left : pair.right;
     const heading = myDmuP2HeadingTo({ x: 100, z: 100 }, tower) + current.offset;
     return { entry, point: myDmuP2PointInDirection(tower, heading, current.distance) };
   });
   const activeGuides = build(active, template.doing);
-  if (round % 2 === 1 && oddStrategy === myDmuP2OddStrategies.melee &&
+  if (!useBbyPos && round % 2 === 1 && oddStrategy === myDmuP2OddStrategies.melee &&
       myDmuNativeVfxPersonalGuideEnabled(data)) {
     const ownId = myDmuNormalizeActorId(myDmuGetHexIdByName(data, data.me));
     const ownGuide = activeGuides.find(({ entry }) =>
@@ -2668,7 +2932,6 @@ const myDmuP3ElementObjectKinds = {
   '1EC03C': 'wind',
 };
 
-const myDmuP3LegacyConfig = 'legacy';
 const myDmuP3FireBuffDefaultOrder = ['MT', 'ST', 'H1', 'H2', 'D1', 'D2', 'D3', 'D4'];
 
 const myDmuP3InvalidConfig = (data, key, value) => {
@@ -2681,10 +2944,10 @@ const myDmuP3InvalidConfig = (data, key, value) => {
   return undefined;
 };
 
-const myDmuP3OptionalEnumConfig = (data, key, allowed) => {
+const myDmuP3OptionalEnumConfig = (data, key, allowed, fallback) => {
   const raw = myDmuConfigValue(data, key);
   if (raw === undefined)
-    return myDmuP3LegacyConfig;
+    return fallback;
   if (typeof raw !== 'string')
     return myDmuP3InvalidConfig(data, key, raw);
   const normalized = raw.trim().toLowerCase();
@@ -2696,7 +2959,7 @@ const myDmuP3OptionalEnumConfig = (data, key, allowed) => {
 const myDmuP3OptionalBooleanConfig = (data, key) => {
   const raw = myDmuConfigValue(data, key);
   if (raw === undefined)
-    return myDmuP3LegacyConfig;
+    return false;
   if (typeof raw === 'boolean')
     return raw;
   if (typeof raw === 'string') {
@@ -2936,9 +3199,17 @@ const myDmuRecordP3ElementObject = (data, matches) => {
     return false;
   myDmuP3MechanicFireBuffOrder(data);
   myDmuP3VfxState(data).elements.objects[kind] = { id, x, z };
-  void myDmuRenderP3ElementGuide(data, `object-${kind}`);
+  myDmuObservePromise(
+    data,
+    myDmuRenderP3ElementGuide(data, `object-${kind}`),
+    `p3-element-guide:object-${kind}`,
+  );
   if (kind === 'fire' || kind === 'water')
-    void myDmuRenderP3Element(data, kind, `object-${kind}`);
+    myDmuObservePromise(
+      data,
+      myDmuRenderP3Element(data, kind, `object-${kind}`),
+      `p3-element:${kind}:object`,
+    );
   return true;
 };
 
@@ -2964,7 +3235,11 @@ const myDmuRecordP3ElementBuff = (data, matches) => {
     state.started[info.kind] = true;
   state.graceUntil[info.kind] = 0;
   const nativeState = myDmuEnsureNativeVfxState(data);
-  myDmuNativeVfxCancelClockTask(nativeState, `${myDmuP3ElementScope(info.kind)}:grace`);
+  myDmuNativeVfxCancelClockTask(
+    data,
+    nativeState,
+    `${myDmuP3ElementScope(info.kind)}:grace`,
+  );
   if (!active) {
     myDmuNativeVfxScheduleClockTask(
       data,
@@ -2980,7 +3255,11 @@ const myDmuRecordP3ElementBuff = (data, matches) => {
       },
     );
   }
-  void myDmuRenderP3Element(data, info.kind, `buff-gain-${actorId}`);
+  myDmuObservePromise(
+    data,
+    myDmuRenderP3Element(data, info.kind, `buff-gain-${actorId}`),
+    `p3-element:${info.kind}:gain-${actorId}`,
+  );
   myDmuRenderP3ElementGuide(data, `buff-gain-${actorId}`);
   return true;
 };
@@ -2993,6 +3272,7 @@ const myDmuLoseP3ElementBuff = (data, matches) => {
   const state = myDmuP3VfxState(data).elements;
   delete state.buffs[info.kind][actorId];
   myDmuNativeVfxCancelClockTask(
+    data,
     myDmuEnsureNativeVfxState(data),
     myDmuP3ElementActivationTaskKey(info.kind, actorId),
   );
@@ -3008,7 +3288,11 @@ const myDmuLoseP3ElementBuff = (data, matches) => {
         : false,
     );
   }
-  void myDmuRenderP3Element(data, info.kind, `buff-lose-${actorId}`);
+  myDmuObservePromise(
+    data,
+    myDmuRenderP3Element(data, info.kind, `buff-lose-${actorId}`),
+    `p3-element:${info.kind}:lose-${actorId}`,
+  );
   myDmuRenderP3ElementGuide(data, `buff-lose-${actorId}`);
   return true;
 };
@@ -3139,8 +3423,8 @@ const myDmuBuildP3SlapVfx = (vfx, data, matches, positions) => {
     return drawings;
   const sectorSetting = myDmuP3OptionalBooleanConfig(data, 'MyDMU_P3SlapRoleSectors');
   const arrowSetting = myDmuP3OptionalBooleanConfig(data, 'MyDMU_P3SlapRouteArrow');
-  const drawSectors = sectorSetting === myDmuP3LegacyConfig || sectorSetting === true;
-  const drawArrow = arrowSetting === myDmuP3LegacyConfig || arrowSetting === true;
+  const drawSectors = sectorSetting === true;
+  const drawArrow = arrowSetting === true;
   if (drawSectors) {
     const byId = new Map(positions.map((entry) => [entry.id, entry]));
     const sectorIds = right
@@ -3191,7 +3475,7 @@ const myDmuRenderP3Slap = async (data, matches) => {
   myDmuP3RecordBoss(data, 'kefka', matches.sourceId);
   let positions = [];
   const sectorSetting = myDmuP3OptionalBooleanConfig(data, 'MyDMU_P3SlapRoleSectors');
-  const needsPositions = sectorSetting === myDmuP3LegacyConfig || sectorSetting === true;
+  const needsPositions = sectorSetting === true;
   if (myDmuNativeVfxPersonalGuideEnabled(data) && needsPositions) {
     const actorIds = myDmuNativeVfxPartyActorIds(data);
     const fence = myDmuNativeVfxCaptureFence(data);
@@ -3252,25 +3536,17 @@ const myDmuBuildP3UmbraVfx = (vfx, data, resolved, snapshot) => {
   const bait = myDmuP3OptionalEnumConfig(
     data,
     'MyDMU_P3SuperJumpBait',
-    [myDmuP3LegacyConfig, 'd3', 'd4'],
+    ['d3', 'd4'],
+    'd3',
   );
   const ownRole = myDmuGetRpByName(data, data.me)?.toLowerCase();
-  const legacyGuide = bait === myDmuP3LegacyConfig && ownId === resolved.target.id;
   const configuredGuide = (bait === 'd3' || bait === 'd4') && ownRole === bait;
-  if (myDmuNativeVfxPersonalGuideEnabled(data) && (legacyGuide || configuredGuide)) {
+  if (myDmuNativeVfxPersonalGuideEnabled(data) && configuredGuide) {
     let target;
-    if (legacyGuide) {
-      const rotation = Math.atan2(
-        resolved.target.x - resolved.source.x,
-        resolved.target.z - resolved.source.z,
-      );
-      target = myDmuP2PointInDirection(resolved.target, rotation, 3);
-    } else {
-      const fireObject = myDmuP3VfxState(data).elements.objects.fire;
-      if (fireObject !== undefined) {
-        const fireDirection = Math.atan2(fireObject.x - 100, fireObject.z - 100);
-        target = myDmuP2PointInDirection({ x: 100, z: 100 }, fireDirection + Math.PI, 19);
-      }
+    const fireObject = myDmuP3VfxState(data).elements.objects.fire;
+    if (fireObject !== undefined) {
+      const fireDirection = Math.atan2(fireObject.x - 100, fireObject.z - 100);
+      target = myDmuP2PointInDirection({ x: 100, z: 100 }, fireDirection + Math.PI, 19);
     }
     if (target === undefined)
       return drawings;
@@ -3331,15 +3607,13 @@ const myDmuBuildP3VacuumVfx = (vfx, data, resolved, partyCircles) => {
   const strategy = myDmuP3OptionalEnumConfig(
     data,
     'MyDMU_P3KnockbackStrategy',
-    [myDmuP3LegacyConfig, 'thht', 'hth', 'all'],
+    ['thht', 'hth', 'all'],
+    'thht',
   );
   const role = myDmuGetRpByName(data, data.me);
   const baseHeading = Math.atan2(100 - resolved.source.x, 100 - resolved.source.z);
   let arrowTarget;
-  if (strategy === myDmuP3LegacyConfig) {
-    const rotation = Math.atan2(own.x - resolved.source.x, own.z - resolved.source.z);
-    arrowTarget = myDmuP2PointInDirection(own, rotation, 9.6);
-  } else if (strategy !== undefined && myDmuNativeVfxPersonalGuideEnabled(data)) {
+  if (strategy !== undefined && myDmuNativeVfxPersonalGuideEnabled(data)) {
     const beforeOffsets = strategy === 'thht'
       ? {
         MT: -Math.PI * 3 / 8, D3: -Math.PI * 3 / 8,
@@ -3798,6 +4072,7 @@ const myDmuRecordP3Blackhole = (data, matches) => {
   blackhole.batchOpenedAt = undefined;
   blackhole.lastWaveClosedAt = eventAt;
   myDmuNativeVfxCancelClockTask(
+    data,
     myDmuEnsureNativeVfxState(data),
     `p3.blackhole.guide:batch-${wave}`,
   );
@@ -3857,17 +4132,12 @@ const myDmuRemoveP3Object = (data, actorId, reason) => {
   delete p3.blackhole.waves[wave].tethers[id];
   p3.blackhole.guideRevision++;
   myDmuRenderP3BlackholeWave(data, wave, `${reason}:remove-${id}`);
-  void myDmuRenderP3BlackholeGuide(data, `${reason}:remove-${id}`);
+  myDmuObservePromise(
+    data,
+    myDmuRenderP3BlackholeGuide(data, `${reason}:remove-${id}`),
+    `p3-blackhole-guide:${reason}:remove-${id}`,
+  );
   return true;
-};
-
-const myDmuP3LegacyTowerRoutePoint = (data, heading) => {
-  const role = myDmuGetRpByName(data, data.me);
-  if (['D1', 'D3'].includes(role))
-    return myDmuP2PointInDirection({ x: 100, z: 100 }, heading - Math.PI / 2, 10);
-  if (['D2', 'D4'].includes(role))
-    return myDmuP2PointInDirection({ x: 100, z: 100 }, heading + Math.PI / 2, 10);
-  return { x: 100, z: 100 };
 };
 
 const myDmuP3TowerConfiguredRoutePoint = (data, heading, strategy, headingMode, frame) => {
@@ -3952,24 +4222,25 @@ const myDmuBuildP3TowerVfx = (vfx, data) => {
   const strategy = myDmuP3OptionalEnumConfig(
     data,
     'MyDMU_P3TowerStrategy',
-    [myDmuP3LegacyConfig, 'off', 'nocchh', 'daohuo'],
+    ['nocchh', 'daohuo'],
+    'nocchh',
   );
   const configuredHeading = myDmuP3OptionalEnumConfig(
     data,
     'MyDMU_P3TowerHeading',
-    [myDmuP3LegacyConfig, 'heel', 'toe'],
+    ['heel', 'toe'],
+    'heel',
   );
   const configuredFrame = myDmuP3OptionalEnumConfig(
     data,
     'MyDMU_P3TowerFrame',
-    [myDmuP3LegacyConfig, 'boss', 'arena'],
+    ['boss', 'arena'],
+    'boss',
   );
-  const headingMode = configuredHeading === myDmuP3LegacyConfig ? 'heel' : configuredHeading;
-  const frame = configuredFrame === myDmuP3LegacyConfig ? 'boss' : configuredFrame;
-  const axisHeading = strategy === myDmuP3LegacyConfig
-    ? heading
-    : headingMode === 'heel' ? heading + Math.PI
-      : headingMode === 'toe' ? heading : undefined;
+  const headingMode = configuredHeading;
+  const frame = configuredFrame;
+  const axisHeading = headingMode === 'heel' ? heading + Math.PI
+    : headingMode === 'toe' ? heading : undefined;
   const drawings = [];
   if (axisHeading !== undefined) {
     const start = myDmuP2PointInDirection({ x: 100, z: 100 }, axisHeading + Math.PI, 20);
@@ -4015,12 +4286,10 @@ const myDmuBuildP3TowerVfx = (vfx, data) => {
     }));
   } else if (state.snapshots.length < 2 && myDmuNativeVfxPersonalGuideEnabled(data) &&
       /^1[0-9A-F]{7}$/u.test(ownId ?? '')) {
-    const target = strategy === myDmuP3LegacyConfig
-      ? myDmuP3LegacyTowerRoutePoint(data, heading)
-      : (strategy === 'nocchh' || strategy === 'daohuo') &&
-          headingMode !== undefined && frame !== undefined
-        ? myDmuP3TowerConfiguredRoutePoint(data, heading, strategy, headingMode, frame)
-        : undefined;
+    const target = (strategy === 'nocchh' || strategy === 'daohuo') &&
+        headingMode !== undefined && frame !== undefined
+      ? myDmuP3TowerConfiguredRoutePoint(data, heading, strategy, headingMode, frame)
+      : undefined;
     if (target !== undefined) {
       drawings.push(myDmuNativeVfxCreateArrow(vfx, {
         id: `${scope}.route.${ownId}`,
@@ -4988,7 +5257,11 @@ const myDmuRecordP4ChaosPlacement = (data, matches) => {
   if (Object.keys(state.placements).length > 8)
     return myDmuP4VfxInvalidate(data, state, [info.scope], 'chaos-placement-overflow', { id, sourceId });
   if (Object.keys(state.placements).length === 8) {
-    myDmuNativeVfxCancelClockTask(myDmuEnsureNativeVfxState(data), `${info.scope}:batch-audit`);
+    myDmuNativeVfxCancelClockTask(
+      data,
+      myDmuEnsureNativeVfxState(data),
+      `${info.scope}:batch-audit`,
+    );
     return myDmuFinalizeP4Chaos(data, info.scope, state.openedAt, 'eight-source-complete');
   }
   return true;
@@ -5099,11 +5372,16 @@ const myDmuUpdateSelectedTargetId = async (data) => {
   const ownId = myDmuNormalizeActorId(myDmuGetHexIdByName(data, data.me));
   if (!/^1[0-9A-F]{7}$/u.test(ownId ?? ''))
     return;
+  const taskFence = myDmuCaptureTaskFence(data);
   try {
     const combatants = await myDmuQueryCombatants(data, [ownId], 'p3.firewall-target');
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return;
     const me = combatants.find((combatant) => combatant?.Name === data.me);
     data.myDmuP3FirewallSelectedTargetId = myDmuCombatantTargetId(me ?? combatants[0]);
   } catch (_err) {
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return;
     data.myDmuP3FirewallSelectedTargetId = undefined;
   }
 };
@@ -5128,22 +5406,24 @@ const myDmuP5SymphonyInfo = (effectId) =>
   myDmuP5SymphonyBuffs[effectId?.toString().toUpperCase()];
 
 const myDmuP5SymphonySpreadScheme = (data) => {
-  const scheme = myDmuConfigValue(
+  const configured = myDmuConfigValue(
     data,
     'MyDMU_P5SymphonySpreadScheme',
-    myDmuP5SymphonySpreadSchemes.eden,
+    myDmuP5SymphonySpreadSchemes.regular,
   );
-  return Object.values(myDmuP5SymphonySpreadSchemes).includes(scheme)
-    ? scheme
+  return Object.values(myDmuP5SymphonySpreadSchemes).includes(configured)
+    ? configured
     : undefined;
 };
 
 const myDmuP5SymphonySpreadText = (data) => {
   const scheme = myDmuP5SymphonySpreadScheme(data);
+  const order = myDmuP5NativeSymphonyOrder(data);
   const role = myDmuGetRpByName(data, data.me);
-  const direction = myDmuP5SymphonySpreadDirections[scheme]?.[role];
+  const directionIndex = order?.indexOf(role) ?? -1;
+  const direction = myDmuP5SymphonySpreadDirectionLabels[scheme]?.[directionIndex];
   if (direction === undefined) {
-    myDmuActLog('P5 癫狂八方职能无法识别', { role, scheme });
+    myDmuActLog('P5 癫狂八方职能或顺序无法识别', { role, scheme, order });
     return undefined;
   }
   return `八方分散，${direction}`;
@@ -5217,13 +5497,7 @@ const myDmuNewP5NativeState = () => ({
   },
 });
 
-const myDmuP5NativeLifecycleRegistry = globalThis.__stringDmuP5NativeLifecycle ??= {
-  data: undefined,
-  listenersInstalled: false,
-};
-
 const myDmuP5NativeState = (data) => {
-  myDmuP5NativeRegisterLifecycleData(data);
   data.myDmuP5 ??= {};
   data.myDmuP5.native ??= myDmuNewP5NativeState();
   return data.myDmuP5.native;
@@ -5269,9 +5543,15 @@ const myDmuP5NativeFail = (data, mechanism, reason, detail) => {
 
 const myDmuP5NativeLifecycleCleanup = async (data, reason = 'lifecycle-cleanup') => {
   const native = myDmuEnsureNativeVfxState(data);
+  const requiresEndSession = native.activated ||
+    Object.keys(native.scopes).length > 0 ||
+    native.lastSubmittedCount > 0 ||
+    native.blocked;
   const groundFire = data.myDmuP5?.native?.groundFire;
-  if (groundFire?.renderTimer !== undefined)
-    clearTimeout(groundFire.renderTimer);
+  if (groundFire !== undefined) {
+    myDmuCancelOwnedTask(data, 'p5.groundFire:render');
+    groundFire.renderTimer = undefined;
+  }
   const vortex = data.myDmuP5?.native?.vortex;
   if (vortex !== undefined) {
     vortex.generation = (vortex.generation ?? 0) + 1;
@@ -5280,13 +5560,17 @@ const myDmuP5NativeLifecycleCleanup = async (data, reason = 'lifecycle-cleanup')
   }
   native.epoch++;
   const epoch = native.epoch;
-  myDmuNativeVfxCancelAllTimers(native);
+  myDmuNativeVfxCancelAllTimers(data, native);
   native.scopes = {};
   native.scopeGenerations = {};
   native.lastSubmittedCount = 0;
   data.myDmuP5NativePendingBossTargets = undefined;
   if (data.myDmuP5 !== undefined)
     data.myDmuP5.native = myDmuNewP5NativeState();
+  if (!requiresEndSession) {
+    native.cleanupStatus = 'global-cleanup-verified';
+    return true;
+  }
   return await myDmuNativeVfxEnqueue(data, async () => {
     try {
       const vfx = myDmuNativeVfxApi(data);
@@ -5316,24 +5600,44 @@ const myDmuP5NativeLifecycleCleanup = async (data, reason = 'lifecycle-cleanup')
   }, epoch);
 };
 
-const myDmuP5NativeRegisterLifecycleData = (data) => {
-  myDmuP5NativeLifecycleRegistry.data = data;
-  if (myDmuP5NativeLifecycleRegistry.listenersInstalled)
+const myDmuBeginLifecycleCleanup = (data, reason) => {
+  if (!myDmuCancelTaskGeneration(data, reason))
+    return false;
+  const cleanup = myDmuP5NativeLifecycleCleanup(data, reason).then((success) => {
+    if (success !== true)
+      throw new Error(`Native VFX lifecycle cleanup 未验证：${reason}`);
+    return true;
+  });
+  myDmuTaskLifecycleRegistry.cleanupPromise = cleanup;
+  void cleanup.then(
+    () => {
+      if (myDmuTaskLifecycleRegistry.cleanupPromise === cleanup)
+        myDmuTaskLifecycleRegistry.cleanupPromise = undefined;
+    },
+    (error) => myDmuActLog('Native VFX lifecycle listener failed', {
+      reason,
+      error: `${error}`,
+      fallback: false,
+    }),
+  );
+  return true;
+};
+
+const myDmuRegisterLifecycleListeners = () => {
+  if (myDmuTaskLifecycleRegistry.listenersInstalled)
     return;
-  myDmuP5NativeLifecycleRegistry.listenersInstalled = true;
+  myDmuTaskLifecycleRegistry.listenersInstalled = true;
   const cleanup = (reason) => {
-    const current = myDmuP5NativeLifecycleRegistry.data;
+    const current = myDmuTaskLifecycleRegistry.currentData;
     if (current === undefined)
       return;
-    void myDmuP5NativeLifecycleCleanup(current, reason).catch((error) =>
-      myDmuActLog('P5 Native lifecycle listener failed', {
-        reason,
-        error: `${error}`,
-        fallback: false,
-      }));
+    myDmuBeginLifecycleCleanup(current, reason);
   };
   if (typeof addOverlayListener === 'function') {
-    addOverlayListener('ChangeZone', () => cleanup('zone-change'));
+    addOverlayListener('ChangeZone', (event) => {
+      if (Number(event?.zoneID) !== 1363)
+        cleanup('zone-change');
+    });
     addOverlayListener('onInCombatChangedEvent', (event) => {
       const detail = event?.detail ?? event ?? {};
       if (!Boolean(detail.inGameCombat ?? detail.inACTCombat ?? false))
@@ -5781,7 +6085,7 @@ const myDmuP5NativeScheduleInvulnerabilityThreshold = (data, state, targetId) =>
   if (scope === undefined || targetId === undefined)
     return false;
   const key = `${scope}.invuln.${targetId}`;
-  myDmuNativeVfxCancelClockTask(myDmuEnsureNativeVfxState(data), key);
+  myDmuNativeVfxCancelClockTask(data, myDmuEnsureNativeVfxState(data), key);
   const record = state.invulnerable[targetId];
   const clock = myDmuNativeVfxClock(data);
   const delay = (record?.guideExpiresAt ?? 0) - clock.now;
@@ -5884,6 +6188,7 @@ const myDmuP5NativeRecordInvulnerability = (data, matches) => {
   const scope = state.activeScope;
   if (scope !== undefined)
     myDmuNativeVfxCancelClockTask(
+      data,
       myDmuEnsureNativeVfxState(data),
       `${scope}.invuln.${targetId}`,
     );
@@ -6482,7 +6787,7 @@ const myDmuP5NativeStartSymphony = (data, matches = {}) => {
     Object.prototype.hasOwnProperty.call(matches, 'isLeaning');
   const isLeaning = replayOverride
     ? matches.isLeaning === true || matches.isLeaning === 'true'
-    : spreadScheme === myDmuP5SymphonySpreadSchemes.omega;
+    : spreadScheme === myDmuP5SymphonySpreadSchemes.leaning;
   myDmuP5NativeState(data).symphony = {
     invalid: false,
     cycle,
@@ -6960,7 +7265,7 @@ const myDmuP5NativeGroundFireCount = (data) => {
 };
 
 const myDmuP5NativeGroundFireGuideEnabled = (data) =>
-  myDmuBooleanConfig(data, 'MyDMU_P5GroundFireGuideEnabled', true) &&
+  myDmuBooleanConfig(data, 'MyDMU_P5GroundFireGuideEnabled', false) &&
   myDmuNativeVfxPersonalGuideEnabled(data);
 
 const myDmuP5NativeGroundClock = (data, options = {}) => {
@@ -6991,8 +7296,8 @@ const myDmuP5NativeResetGroundFire = (data, matches = {}) => {
   const previous = myDmuP5NativeState(data).groundFire;
   if (previous.invalid)
     return false;
-  if (previous.renderTimer !== undefined)
-    clearTimeout(previous.renderTimer);
+  myDmuCancelOwnedTask(data, 'p5.groundFire:render');
+  previous.renderTimer = undefined;
   myDmuP5NativeClearMechanism(data, 'repeater', 'BB3B-enter-ground-fire');
   myDmuP5NativeState(data).repeater.activeScope = undefined;
   myDmuP5NativeClearMechanism(data, 'groundFire', 'ground-fire-reset');
@@ -7468,20 +7773,24 @@ const myDmuP5NativeAdvanceGroundFire = (data, matches) => {
   if (state.advanceKeys[advanceKey])
     return myDmuP5NativeFail(data, 'groundFire', 'duplicate-BB3D-occurrence', { advanceKey });
   state.advanceKeys[advanceKey] = true;
+  const taskFence = myDmuCaptureTaskFence(data);
   const query = myDmuQueryCombatants(data, [actorId], 'p5.groundFire.BB3D');
   const expectedState = state;
   state.advanceChain = (state.advanceChain ?? Promise.resolve())
-    .catch(() => undefined)
     .then(async () => {
+      if (!myDmuTaskFenceCurrent(data, taskFence))
+        return false;
       let combatants;
       try {
         combatants = await query;
       } catch (error) {
-        if (myDmuP5NativeState(data).groundFire !== expectedState || !expectedState.armed)
+        if (!myDmuTaskFenceCurrent(data, taskFence) ||
+            myDmuP5NativeState(data).groundFire !== expectedState || !expectedState.armed)
           return false;
         return myDmuP5NativeFail(data, 'groundFire', 'BB3D-combatant-query-failed', `${error}`);
       }
-      if (myDmuP5NativeState(data).groundFire !== expectedState || !expectedState.armed)
+      if (!myDmuTaskFenceCurrent(data, taskFence) ||
+          myDmuP5NativeState(data).groundFire !== expectedState || !expectedState.armed)
         return false;
       if (!Array.isArray(combatants) || combatants.length !== 1)
         return myDmuP5NativeFail(data, 'groundFire', 'BB3D-combatant-query-not-exact', {
@@ -7522,15 +7831,19 @@ const myDmuP5NativeAdvanceGroundFire = (data, matches) => {
       const line = candidates[0].line;
       line.resolvedStep++;
       myDmuP5NativeMarkGroundFireGuideResolved(expectedState, line, line.resolvedStep);
-      if (expectedState.renderTimer !== undefined)
-        clearTimeout(expectedState.renderTimer);
+      myDmuCancelOwnedTask(data, 'p5.groundFire:render');
       const renderMatches = { ...matches };
-      expectedState.renderTimer = setTimeout(() => {
-        expectedState.renderTimer = undefined;
-        if (myDmuP5NativeState(data).groundFire !== expectedState || !expectedState.armed)
-          return;
-        myDmuP5NativeRenderGroundFire(data, renderMatches);
-      }, 16);
+      expectedState.renderTimer = myDmuScheduleOwnedTask(
+        data,
+        'p5.groundFire:render',
+        16,
+        () => {
+          expectedState.renderTimer = undefined;
+          if (myDmuP5NativeState(data).groundFire !== expectedState || !expectedState.armed)
+            return;
+          return myDmuP5NativeRenderGroundFire(data, renderMatches);
+        },
+      );
       return true;
     });
   return state.advanceChain;
@@ -7565,18 +7878,21 @@ const myDmuP5NativeStartVortex = async (data, matches = {}) => {
   state.partyIds = [...ids];
   state.spreadTargetIds = {};
   state.visualResolved = false;
+  const taskFence = myDmuCaptureTaskFence(data);
   let combatantIds;
   try {
     const combatants = await myDmuQueryCombatants(data, ids, 'p5.vortex');
     combatantIds = combatants
       .map((combatant) => myDmuNormalizeActorId(combatant?.ID ?? combatant?.Id));
   } catch (error) {
-    if (myDmuP5NativeState(data).vortex !== state || state.generation !== generation ||
+    if (!myDmuTaskFenceCurrent(data, taskFence) ||
+        myDmuP5NativeState(data).vortex !== state || state.generation !== generation ||
         !state.active || state.occurrence !== occurrence)
       return false;
     return myDmuP5NativeFail(data, 'vortex', 'party-query-failed', `${error}`);
   }
-  if (myDmuP5NativeState(data).vortex !== state || state.generation !== generation ||
+  if (!myDmuTaskFenceCurrent(data, taskFence) ||
+      myDmuP5NativeState(data).vortex !== state || state.generation !== generation ||
       !state.active || state.occurrence !== occurrence)
     return false;
   if (combatantIds.length !== 8 || new Set(combatantIds).size !== 8 ||
@@ -7657,7 +7973,7 @@ const myDmuP5NativeRenderForsaken = (data, reason) => {
     return myDmuP5NativeFail(data, 'forsaken', 'invalid-start-config', {
       value: myDmuConfigValue(data, 'MyDMU_P5ForsakenStart', '1'),
     });
-  if (!myDmuBooleanConfig(data, 'MyDMU_P5ForsakenGuideEnabled', true) ||
+  if (!myDmuBooleanConfig(data, 'MyDMU_P5ForsakenGuideEnabled', false) ||
       !myDmuNativeVfxPersonalGuideEnabled(data)) {
     myDmuP5NativeClearMechanism(data, 'forsaken', `${reason}:guide-disabled`);
     return false;
@@ -8096,13 +8412,17 @@ const myDmuClearMarks = (data) => {
 
 const myDmuScheduleClearMarks = (data, key, delaySeconds = 0.5, condition = () => true) => {
   data.myDmuClearMarkTimers ??= {};
-  if (data.myDmuClearMarkTimers[key] !== undefined)
-    clearTimeout(data.myDmuClearMarkTimers[key]);
-  data.myDmuClearMarkTimers[key] = setTimeout(() => {
-    delete data.myDmuClearMarkTimers?.[key];
-    if (condition(data))
-      myDmuClearMarks(data);
-  }, delaySeconds * 1000);
+  myDmuCancelOwnedTask(data, `marks:clear:${key}`);
+  data.myDmuClearMarkTimers[key] = myDmuScheduleOwnedTask(
+    data,
+    `marks:clear:${key}`,
+    delaySeconds * 1000,
+    () => {
+      delete data.myDmuClearMarkTimers?.[key];
+      if (condition(data))
+        myDmuClearMarks(data);
+    },
+  );
 };
 
 const myDmuResetP1 = (data) => {
@@ -8136,10 +8456,8 @@ const myDmuResetP1 = (data) => {
 };
 
 const myDmuResetP2 = (data) => {
-  if (data.myDmuP2Round8Timer !== undefined) {
-    clearTimeout(data.myDmuP2Round8Timer);
-    data.myDmuP2Round8Timer = undefined;
-  }
+  myDmuCancelOwnedTask(data, 'p2:round-8');
+  data.myDmuP2Round8Timer = undefined;
   data.myDmuP2Initial = {};
   data.myDmuP2Current = {};
   data.myDmuP2GroupA = [];
@@ -8251,8 +8569,8 @@ const myDmuResetP3Targets = (data) => {
 };
 
 const myDmuCancelP4Timers = (data) => {
-  for (const timer of Object.values(data.myDmuP4?.markTimers ?? {}))
-    clearTimeout(timer);
+  for (const key of Object.keys(data.myDmuP4?.markTimers ?? {}))
+    myDmuCancelOwnedTask(data, `p4:timer:${key}`);
   if (data.myDmuP4 !== undefined)
     data.myDmuP4.markTimers = {};
 };
@@ -8339,115 +8657,123 @@ const myDmuResetAll = (data) => {
   myDmuResetP5(data);
 };
 
-const myDmuInitState = () => ({
-  myDmuPhase: 'p1',
-  myDmuSpeech: {},
-  myDmuMarkState: myDmuNewMarkState(),
-  myDmuP1GravenCount: 0,
-  myDmuP1Stage: 'opening',
-  myDmuP1Fake: { fire: false, ice: false, thunder: false },
-  myDmuP1Tethers: [],
-  myDmuP1PoisonTargets: [],
-  myDmuP1PoisonTargetIds: {},
-  myDmuP1PoisonDurations: {},
-  myDmuP1PoisonMarkerSignature: undefined,
-  myDmuP1FireMarkerId: undefined,
-  myDmuP1FireMarkerTargetIds: [],
-  myDmuP1WaveCannonTargets: [],
-  myDmuP1PlaceRock: false,
-  myDmuP1FirstTethered: false,
-  myDmuP1Graven2TetherCount: 1,
-  myDmuP1Graven2SourceX: undefined,
-  myDmuP1Arrow: [],
-  myDmuP1Graven3Tethers: [],
-  myDmuP1Combatants: [],
-  myDmuP1BeamTargetIds: [],
-  myDmuP1BeamPartyCombatants: [],
-  myDmuP1BeamTowers: {},
-  myDmuP1BeamOrderLatch: myDmuNewP1BeamOrderLatch(),
-  myDmuP1ArrowEffectsByActor: {},
-  myDmuNativeVfx: myDmuNewNativeVfxState('p1'),
-  myDmuNativeVfxNpcBaseIdByActor: {},
-  myDmuNativeVfxCombatantByActor: {},
-  myDmuP5NativePendingBossTargets: {},
-  myDmuP2Initial: {},
-  myDmuP2Current: {},
-  myDmuP2GroupA: [],
-  myDmuP2GroupB: [],
-  myDmuP2InitialSlots: { A: [], B: [] },
-  myDmuP2PointSlots: {},
-  myDmuP2GroupMismatches: {},
-  myDmuP2CalloutShown: {},
-  myDmuP2InitialLocked: false,
-  myDmuP2AppliedRounds: {},
-  myDmuP2AppliedRoundSignatures: {},
-  myDmuP2RoundSeen: {},
-  myDmuP2Round: 0,
-  myDmuP2AbilityRound: 0,
-  myDmuP2Round8Timer: undefined,
-  myDmuP2BuffCounts: {},
-  myDmuP2FuturePastCount: 0,
-  myDmuP2FuturePastFlip: false,
-  myDmuP2AllThingsEndingCount: 0,
-  myDmuP2AllThingsEndingCalloutCount: 0,
-  myDmuP2LastKickId: undefined,
-  myDmuP2FarNearTargetIds: [],
-  myDmuP2Trine: {
-    armed: false,
-    wave: 0,
-    resolvedWave: 0,
-    lastOpenAt: undefined,
-    actorsByWave: { 1: {}, 2: {}, 3: {} },
-    waveByActor: {},
-  },
-  myDmuP2CombatantPositions: {},
-  myDmuP2TowerRoundCount: 0,
-  myDmuP2TowerCurrentRound: undefined,
-  myDmuP2TowerLastAt: undefined,
-  myDmuP2TowerRounds: {},
-  myDmuP2TowerFallbackLogs: {},
-  myDmuP2TowerDecisionLogs: {},
-  myDmuP3Mahjong: {
-    markers: {},
-    lines: [],
-    lineSources: {},
-    earlyShockwaveSeen: false,
-    plan: undefined,
-    marked: false,
-    calloutShown: false,
-    resolveCount: 0,
-    resolvedTargetIds: {},
-  },
-  myDmuP3Vfx: myDmuNewP3VfxState(),
-  myDmuP3Targets: {
-    first: [],
-    second: [],
-    third: [],
-    marked: false,
-  },
-  myDmuP4: {
-    truth: { ex: undefined, chaos: undefined },
-    truthAt: { ex: undefined, chaos: undefined },
-    truthEvents: { ex: [], chaos: [] },
-    buffs: {},
-    buffRecords: [],
-    buffChatSent: {},
-    buffSerial: 0,
-    elementMarked: {},
-    elementCleared: {},
-    petrifyMarked: {},
-    petrifyCleared: {},
-    markAssignments: {},
-    markActorKinds: {},
-    markActorMarkers: {},
-    markAppliedAt: {},
-    markTimers: {},
-    mandarinDuck: {},
-    lateSpell: {},
-    flutteringUltimateCount: 0,
-    vfx: myDmuNewP4VfxState(),
-  },
-});
+const myDmuInitState = () => {
+  const previous = myDmuTaskLifecycleRegistry.currentData;
+  if (previous !== undefined)
+    myDmuBeginLifecycleCleanup(previous, 'pull-replaced');
+  const data = {
+    myDmuPhase: 'p1',
+    myDmuSpeech: {},
+    myDmuMarkState: myDmuNewMarkState(),
+    myDmuP1GravenCount: 0,
+    myDmuP1Stage: 'opening',
+    myDmuP1Fake: { fire: false, ice: false, thunder: false },
+    myDmuP1Tethers: [],
+    myDmuP1PoisonTargets: [],
+    myDmuP1PoisonTargetIds: {},
+    myDmuP1PoisonDurations: {},
+    myDmuP1PoisonMarkerSignature: undefined,
+    myDmuP1FireMarkerId: undefined,
+    myDmuP1FireMarkerTargetIds: [],
+    myDmuP1WaveCannonTargets: [],
+    myDmuP1PlaceRock: false,
+    myDmuP1FirstTethered: false,
+    myDmuP1Graven2TetherCount: 1,
+    myDmuP1Graven2SourceX: undefined,
+    myDmuP1Arrow: [],
+    myDmuP1Graven3Tethers: [],
+    myDmuP1Combatants: [],
+    myDmuP1BeamTargetIds: [],
+    myDmuP1BeamPartyCombatants: [],
+    myDmuP1BeamTowers: {},
+    myDmuP1BeamOrderLatch: myDmuNewP1BeamOrderLatch(),
+    myDmuP1ArrowEffectsByActor: {},
+    myDmuNativeVfx: myDmuNewNativeVfxState('p1'),
+    myDmuNativeVfxNpcBaseIdByActor: {},
+    myDmuNativeVfxCombatantByActor: {},
+    myDmuP5NativePendingBossTargets: {},
+    myDmuP2Initial: {},
+    myDmuP2Current: {},
+    myDmuP2GroupA: [],
+    myDmuP2GroupB: [],
+    myDmuP2InitialSlots: { A: [], B: [] },
+    myDmuP2PointSlots: {},
+    myDmuP2GroupMismatches: {},
+    myDmuP2CalloutShown: {},
+    myDmuP2InitialLocked: false,
+    myDmuP2AppliedRounds: {},
+    myDmuP2AppliedRoundSignatures: {},
+    myDmuP2RoundSeen: {},
+    myDmuP2Round: 0,
+    myDmuP2AbilityRound: 0,
+    myDmuP2Round8Timer: undefined,
+    myDmuP2BuffCounts: {},
+    myDmuP2FuturePastCount: 0,
+    myDmuP2FuturePastFlip: false,
+    myDmuP2AllThingsEndingCount: 0,
+    myDmuP2AllThingsEndingCalloutCount: 0,
+    myDmuP2LastKickId: undefined,
+    myDmuP2FarNearTargetIds: [],
+    myDmuP2Trine: {
+      armed: false,
+      wave: 0,
+      resolvedWave: 0,
+      lastOpenAt: undefined,
+      actorsByWave: { 1: {}, 2: {}, 3: {} },
+      waveByActor: {},
+    },
+    myDmuP2CombatantPositions: {},
+    myDmuP2TowerRoundCount: 0,
+    myDmuP2TowerCurrentRound: undefined,
+    myDmuP2TowerLastAt: undefined,
+    myDmuP2TowerRounds: {},
+    myDmuP2TowerFallbackLogs: {},
+    myDmuP2TowerDecisionLogs: {},
+    myDmuP3Mahjong: {
+      markers: {},
+      lines: [],
+      lineSources: {},
+      earlyShockwaveSeen: false,
+      plan: undefined,
+      marked: false,
+      calloutShown: false,
+      resolveCount: 0,
+      resolvedTargetIds: {},
+    },
+    myDmuP3Vfx: myDmuNewP3VfxState(),
+    myDmuP3Targets: {
+      first: [],
+      second: [],
+      third: [],
+      marked: false,
+    },
+    myDmuP4: {
+      truth: { ex: undefined, chaos: undefined },
+      truthAt: { ex: undefined, chaos: undefined },
+      truthEvents: { ex: [], chaos: [] },
+      buffs: {},
+      buffRecords: [],
+      buffChatSent: {},
+      buffSerial: 0,
+      elementMarked: {},
+      elementCleared: {},
+      petrifyMarked: {},
+      petrifyCleared: {},
+      markAssignments: {},
+      markActorKinds: {},
+      markActorMarkers: {},
+      markAppliedAt: {},
+      markTimers: {},
+      mandarinDuck: {},
+      lateSpell: {},
+      flutteringUltimateCount: 0,
+      vfx: myDmuNewP4VfxState(),
+    },
+  };
+  myDmuStartTaskGeneration(data, 'pull-init');
+  myDmuRegisterLifecycleListeners();
+  return data;
+};
 
 const myDmuP2EntryFromHeadmarker = (data, matches, mechanic) => {
   const role = myDmuGetRpByName(data, matches.target);
@@ -8492,14 +8818,19 @@ const myDmuP2RememberCombatantPosition = async (data, targetId) => {
   if (!Number.isFinite(id))
     return;
 
+  const taskFence = myDmuCaptureTaskFence(data);
   try {
     const combatants = await myDmuQueryCombatants(data, [id], 'p2.tower-position');
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return;
     const pos = myDmuP2CombatantPoint(combatants[0]);
     if (pos === undefined)
       return;
     data.myDmuP2CombatantPositions ??= {};
     data.myDmuP2CombatantPositions[myDmuP2ActorKey(targetId)] = pos;
   } catch (err) {
+    if (!myDmuTaskFenceCurrent(data, taskFence))
+      return;
     console.log(`[String][P2TowerLR] fallback reason=getCombatants-failed target=${targetId} error=${err}`);
   }
 };
@@ -8602,6 +8933,9 @@ const myDmuP2OddStrategy = (data) => myDmuP1P2EnumConfig(
   myDmuP2OddStrategies.original,
   Object.values(myDmuP2OddStrategies),
 );
+
+const myDmuP2UseBbyPos = (data) =>
+  myDmuBooleanConfig(data, 'MyDMU_P2UseBbyPos', false);
 
 const myDmuP2RoleSort = (entries, order = myDmuRoleOrder) =>
   [...entries].sort((a, b) => myDmuRolePriority(a.role, order) - myDmuRolePriority(b.role, order));
@@ -10048,7 +10382,8 @@ const myDmuRecordP4LateSpell = (data, matches) => {
       return true;
     st.thunderSeen = true;
     st.thunderTrue = id === 'BA9F';
-    myDmuRetryAction(() => myDmuTrySendP4LateThunderChats(data), 12, 500);
+    myDmuRetryAction(data, 'p4-late-thunder-chat', () =>
+      myDmuTrySendP4LateThunderChats(data), 12, 500);
     return true;
   }
   if (myDmuP4IceSpellIds.includes(id)) {
@@ -10056,7 +10391,8 @@ const myDmuRecordP4LateSpell = (data, matches) => {
       return true;
     st.iceSeen = true;
     st.iceTrue = id === 'BA98';
-    myDmuRetryAction(() => myDmuTrySendP4LateIceChats(data), 12, 500);
+    myDmuRetryAction(data, 'p4-late-ice-chat', () =>
+      myDmuTrySendP4LateIceChats(data), 12, 500);
     return true;
   }
   return false;
@@ -10364,12 +10700,16 @@ const myDmuP4MinExpiresAt = (records) => {
 
 const myDmuP4ScheduleTimer = (data, key, delayMs, callback) => {
   data.myDmuP4.markTimers ??= {};
-  if (data.myDmuP4.markTimers[key] !== undefined)
-    clearTimeout(data.myDmuP4.markTimers[key]);
-  data.myDmuP4.markTimers[key] = setTimeout(() => {
-    delete data.myDmuP4.markTimers?.[key];
-    callback();
-  }, Math.max(delayMs, 0));
+  myDmuCancelOwnedTask(data, `p4:timer:${key}`);
+  data.myDmuP4.markTimers[key] = myDmuScheduleOwnedTask(
+    data,
+    `p4:timer:${key}`,
+    Math.max(delayMs, 0),
+    () => {
+      delete data.myDmuP4.markTimers?.[key];
+      return callback();
+    },
+  );
 };
 
 const myDmuP4IsPetrifyKind = (kind) => typeof kind === 'string' && (kind === 'petrify' || kind.startsWith('petrify-'));
@@ -10452,7 +10792,8 @@ const myDmuP4ClearKind = (data, kind, reason) => {
     data.myDmuP4.petrifyCleared.short = true;
   if (kind === myDmuP4PetrifyKind('long'))
     data.myDmuP4.petrifyCleared.long = true;
-  myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, `after-clear-${kind}`), 10, 250);
+  myDmuRetryAction(data, `p4-after-clear-${kind}`, () =>
+    myDmuProcessP4MarkTiming(data, `after-clear-${kind}`), 10, 250);
   return true;
 };
 
@@ -10553,7 +10894,8 @@ const myDmuP4TransitionElementToPetrify = (data, round, reason) => {
   const petrifyApplied = myDmuApplyP4PetrifyRound(data, round);
   const elementCleared = myDmuP4ClearKind(data, round, reason);
   if (!petrifyApplied)
-    myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, `after-transition-${round}`), 10, 250);
+    myDmuRetryAction(data, `p4-after-transition-${round}`, () =>
+      myDmuProcessP4MarkTiming(data, `after-transition-${round}`), 10, 250);
   return petrifyApplied || elementCleared;
 };
 
@@ -10635,7 +10977,7 @@ const myDmuCancelP4NativeBuffRoundTasks = (data, effectId, round) => {
   const prefix = myDmuP4NativeBuffTaskPrefix(effectId, round);
   for (const key of Object.keys(state.clockTasks)) {
     if (key.startsWith(prefix))
-      myDmuNativeVfxCancelClockTask(state, key);
+      myDmuNativeVfxCancelClockTask(data, state, key);
   }
 };
 
@@ -10677,6 +11019,7 @@ const myDmuCancelP4NativeBuffTask = (data, effectId, targetId, round) => {
   const rounds = round === undefined ? ['short', 'long'] : [round];
   for (const candidate of rounds)
     myDmuNativeVfxCancelClockTask(
+      data,
       state,
       myDmuP4NativeBuffTaskKey(effectId, actorId, candidate),
     );
@@ -10728,7 +11071,7 @@ Options.Triggers.push({
       id: '绝妖星 阶段追踪',
       type: 'StartsUsing',
       netRegex: { id: Object.keys(myDmuPhaseStarts), capture: true },
-      run: async (data, matches) => {
+      run: (data, matches) => {
         const nextPhase = myDmuPhaseStarts[matches.id];
         if (nextPhase === undefined)
           return;
@@ -10738,6 +11081,7 @@ Options.Triggers.push({
         if (data.myDmuPhase === 'p4' && nextPhase !== 'p4')
           myDmuCancelP4Timers(data);
         const previousPhase = data.myDmuPhase;
+        myDmuStartTaskGeneration(data, `phase:${previousPhase}->${nextPhase}`);
         // Establish the VFX epoch/queue fence before exposing the new phase, while
         // keeping the existing phase resets synchronous for cactbot consumers.
         const phaseTeardown = myDmuNativeVfxSwitchPhase(data, nextPhase, true);
@@ -10765,14 +11109,20 @@ Options.Triggers.push({
             myDmuP5NativeState(data).repeater.bossActorId = bossActorId;
           myDmuClearMarks(data);
         }
-        const cleared = await phaseTeardown;
-        if (!cleared) {
-          myDmuActLog('Native VFX phase root teardown 未完全成功', {
-            previousPhase,
-            nextPhase,
-            fallback: false,
-          });
-        }
+        myDmuObservePromise(
+          data,
+          phaseTeardown.then((cleared) => {
+            if (!cleared) {
+              myDmuActLog('Native VFX phase root teardown 未完全成功', {
+                previousPhase,
+                nextPhase,
+                fallback: false,
+              });
+            }
+            return cleared;
+          }),
+          `phase-teardown:${previousPhase}->${nextPhase}`,
+        );
       },
     },
     {
@@ -10932,7 +11282,13 @@ Options.Triggers.push({
       netRegex: { id: ['BAA2', 'BAA3'], capture: false },
       condition: (data) => data.myDmuPhase === 'p1',
       suppressSeconds: 1,
-      run: (data) => myDmuRetryAction(() => myDmuApplyP1PoisonMarkers(data, true), 6, 250),
+      run: (data) => myDmuRetryAction(
+        data,
+        'p1-poison-markers',
+        () => myDmuApplyP1PoisonMarkers(data, true),
+        6,
+        250,
+      ),
     },
     {
       id: '绝妖星 P1 连环环陷阱原生预兆',
@@ -12034,7 +12390,7 @@ Options.Triggers.push({
       type: 'StartsUsing',
       netRegex: { id: 'BB00', capture: true },
       condition: (data) => data.myDmuPhase === 'p3' && myDmuNativeVfxPhaseEnabled(data, 'p3'),
-      run: async (data, matches) => await myDmuRenderP3Umbra(data, matches),
+      promise: (data, matches) => myDmuRenderP3Umbra(data, matches),
     },
     {
       id: '绝妖星 P3 本影暴碎清理',
@@ -12048,7 +12404,7 @@ Options.Triggers.push({
       type: 'StartsUsing',
       netRegex: { id: 'BB13', capture: true },
       condition: (data) => data.myDmuPhase === 'p3' && myDmuNativeVfxPhaseEnabled(data, 'p3'),
-      run: async (data, matches) => await myDmuRenderP3Vacuum(data, matches),
+      promise: (data, matches) => myDmuRenderP3Vacuum(data, matches),
     },
     {
       id: '绝妖星 P3 黑洞记录',
@@ -12062,7 +12418,7 @@ Options.Triggers.push({
       type: 'Tether',
       netRegex: { id: '0054', capture: true },
       condition: (data) => data.myDmuPhase === 'p3' && myDmuNativeVfxPhaseEnabled(data, 'p3'),
-      run: (data, matches) => myDmuRecordP3BlackholeTether(data, matches),
+      promise: (data, matches) => myDmuRecordP3BlackholeTether(data, matches),
     },
     {
       id: '绝妖星 P3 场地对象精确移除',
@@ -12095,7 +12451,7 @@ Options.Triggers.push({
       type: 'Ability',
       netRegex: { id: 'BB03', capture: true },
       condition: (data) => data.myDmuPhase === 'p3' && myDmuNativeVfxPhaseEnabled(data, 'p3'),
-      run: async (data, matches) => await myDmuSnapshotP3Tower(data, matches),
+      promise: (data, matches) => myDmuSnapshotP3Tower(data, matches),
     },
     {
       id: '绝妖星 P3 踩塔击退计数',
@@ -12307,9 +12663,11 @@ Options.Triggers.push({
         : undefined,
       tts: null,
       soundVolume: 0,
-      run: async (data, matches) => {
+      promise: async (data, matches) => {
         if (myDmuNativeVfxPhaseEnabled(data, 'p3'))
           await myDmuRenderP3Slap(data, matches);
+      },
+      run: (data) => {
         if (myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true))
           myDmuSpeakCached(data, 'p3LoudSlap');
       },
@@ -12337,9 +12695,11 @@ Options.Triggers.push({
         : undefined,
       tts: null,
       soundVolume: 0,
-      run: async (data, matches) => {
+      promise: async (data, matches) => {
         if (myDmuNativeVfxPhaseEnabled(data, 'p3'))
           await myDmuRenderP3Thunder(data, matches);
+      },
+      run: (data) => {
         if (data.role === 'tank' && myDmuBooleanConfig(data, 'MyDMU_P3ActionCallout', true))
           myDmuSpeakCached(data, 'p3ThunderTankbuster');
       },
@@ -12530,8 +12890,10 @@ Options.Triggers.push({
           return;
         myDmuP4RecordTruth(data, truth.target, truth.value, matches, 'actor-control');
         myDmuRefreshP4NativeVfxTruth(data, truth.target, 'actor-control');
-        myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
-        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-actor-control'), 12, 250);
+        myDmuRetryAction(data, 'p4-buff-chat', () =>
+          myDmuTrySendP4BuffChats(data), 8, 500);
+        myDmuRetryAction(data, 'p4-mark-timing', () =>
+          myDmuProcessP4MarkTiming(data, 'truth-actor-control'), 12, 250);
       },
     },
     {
@@ -12545,8 +12907,10 @@ Options.Triggers.push({
           return;
         myDmuP4RecordTruth(data, truth.target, truth.value, matches, 'status-list');
         myDmuRefreshP4NativeVfxTruth(data, truth.target, 'status-list');
-        myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
-        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-status'), 12, 250);
+        myDmuRetryAction(data, 'p4-buff-chat', () =>
+          myDmuTrySendP4BuffChats(data), 8, 500);
+        myDmuRetryAction(data, 'p4-mark-timing', () =>
+          myDmuProcessP4MarkTiming(data, 'truth-status'), 12, 250);
       },
     },
     {
@@ -12563,8 +12927,10 @@ Options.Triggers.push({
         if (truth !== undefined) {
           myDmuP4RecordTruth(data, truth.target, truth.value, matches, 'headmarker');
           myDmuRefreshP4NativeVfxTruth(data, truth.target, 'headmarker');
-          myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
-          myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'truth-headmarker'), 12, 250);
+          myDmuRetryAction(data, 'p4-buff-chat', () =>
+            myDmuTrySendP4BuffChats(data), 8, 500);
+          myDmuRetryAction(data, 'p4-mark-timing', () =>
+            myDmuProcessP4MarkTiming(data, 'truth-headmarker'), 12, 250);
         }
         myDmuP4MagicRecordReleaseMarker(data, matches, 'magic-headmarker');
       },
@@ -12666,7 +13032,8 @@ Options.Triggers.push({
       condition: (data, matches) => data.myDmuPhase === 'p4' && matches.target === data.me,
       run: (data, matches) => {
         myDmuRecordP4MandarinDuckBuff(data, matches);
-        myDmuRetryAction(() => myDmuTrySendP4MandarinDuckChats(data), 10, 500);
+        myDmuRetryAction(data, 'p4-mandarin-chat', () =>
+          myDmuTrySendP4MandarinDuckChats(data), 10, 500);
       },
     },
     {
@@ -12676,7 +13043,8 @@ Options.Triggers.push({
       condition: (data) => data.myDmuPhase === 'p4',
       run: (data, matches) => {
         myDmuRecordP4MandarinDuckAntilight(data, matches);
-        myDmuRetryAction(() => myDmuTrySendP4MandarinDuckChats(data), 12, 500);
+        myDmuRetryAction(data, 'p4-mandarin-chat', () =>
+          myDmuTrySendP4MandarinDuckChats(data), 12, 500);
       },
     },
     {
@@ -12699,8 +13067,10 @@ Options.Triggers.push({
       netRegex: { effectId: myDmuP4TrackedBuffs, capture: true },
       preRun: (data, matches) => {
         myDmuP4CacheBuff(data, matches);
-        myDmuRetryAction(() => myDmuTrySendP4BuffChats(data), 8, 500);
-        myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'buff-cache'), 12, 250);
+        myDmuRetryAction(data, 'p4-buff-chat', () =>
+          myDmuTrySendP4BuffChats(data), 8, 500);
+        myDmuRetryAction(data, 'p4-mark-timing', () =>
+          myDmuProcessP4MarkTiming(data, 'buff-cache'), 12, 250);
       },
     },
     {
@@ -12790,7 +13160,7 @@ Options.Triggers.push({
       run: (data, matches) => {
         const effectId = matches.effectId.toUpperCase();
         const duration = myDmuNumber(matches.duration);
-        myDmuRetryAction(() => {
+        myDmuRetryAction(data, `p4-execute-${effectId}-${matches.targetId}`, () => {
           const rec = myDmuP4RecordForEvent(data, matches.targetId, effectId, duration);
           return myDmuTrySendP4ExecuteChat(data, rec);
         }, 8, 300);
@@ -12984,14 +13354,14 @@ Options.Triggers.push({
       type: 'Ability',
       netRegex: { id: 'BB3D', capture: true },
       condition: (data) => data.myDmuPhase === 'p5' && myDmuNativeVfxPhaseEnabled(data, 'p5'),
-      run: (data, matches) => myDmuP5NativeAdvanceGroundFire(data, matches),
+      promise: (data, matches) => myDmuP5NativeAdvanceGroundFire(data, matches),
     },
     {
       id: '绝妖星 P5 原生旋涡开始',
       type: 'StartsUsing',
       netRegex: { id: ['BB3E', 'BB3F'], capture: true },
       condition: (data) => data.myDmuPhase === 'p5' && myDmuNativeVfxPhaseEnabled(data, 'p5'),
-      run: (data, matches) => myDmuP5NativeStartVortex(data, matches),
+      promise: (data, matches) => myDmuP5NativeStartVortex(data, matches),
     },
     {
       id: '绝妖星 P5 原生旋涡结算',
@@ -13224,7 +13594,13 @@ Options.Triggers.push({
       id: '绝妖星 P4 元素标点时机',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4ElementBuffs, capture: true },
-      run: (data) => myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'element-fallback'), 12, 250),
+      run: (data) => myDmuRetryAction(
+        data,
+        'p4-mark-timing',
+        () => myDmuProcessP4MarkTiming(data, 'element-fallback'),
+        12,
+        250,
+      ),
     },
     {
       id: '绝妖星 P4 元素结束清除标点',
@@ -13246,7 +13622,13 @@ Options.Triggers.push({
       id: '绝妖星 P4 石化标点时机',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4PetrifyBuff, capture: true },
-      run: (data) => myDmuRetryAction(() => myDmuProcessP4MarkTiming(data, 'petrify-fallback'), 12, 250),
+      run: (data) => myDmuRetryAction(
+        data,
+        'p4-mark-timing',
+        () => myDmuProcessP4MarkTiming(data, 'petrify-fallback'),
+        12,
+        250,
+      ),
     },
     {
       id: '绝妖星 P4 石化结束清除标点',

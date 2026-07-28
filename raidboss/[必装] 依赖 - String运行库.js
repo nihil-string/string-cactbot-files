@@ -22,6 +22,7 @@
     MyDMU_P2TowerMarkV3: false,
     MyDMU_P2Pair2222IdleOddMode: 'role',
     MyDMU_P2OddStrategy: 'original',
+    MyDMU_P2UseBbyPos: false,
     MyDMU_P2EndTowerStrategy: 'north',
     MyDMU_P2TrineDrawMode: 'preview',
     MyDMU_P2TowerCallout: false,
@@ -29,13 +30,13 @@
     MyDMU_P3MahjongMarkV3: false,
     MyDMU_P3TargetMarkV3: false,
     MyDMU_P3FireBuffOrder: 'MT/ST/H1/H2/D1/D2/D3/D4',
-    MyDMU_P3SuperJumpBait: 'legacy',
-    MyDMU_P3KnockbackStrategy: 'legacy',
-    MyDMU_P3SlapRoleSectors: true,
-    MyDMU_P3SlapRouteArrow: true,
+    MyDMU_P3SuperJumpBait: 'D3',
+    MyDMU_P3KnockbackStrategy: 'thht',
+    MyDMU_P3SlapRoleSectors: false,
+    MyDMU_P3SlapRouteArrow: false,
     MyDMU_P3Attack1DoubleTether: false,
     MyDMU_P3Stop2DoubleTether: false,
-    MyDMU_P3TowerStrategy: 'legacy',
+    MyDMU_P3TowerStrategy: 'nocchh',
     MyDMU_P3TowerHeading: 'heel',
     MyDMU_P3TowerFrame: 'boss',
     MyDMU_P3TargetFirstPriority: 'D1/D2/D3/D4/MT/ST/H2/H1',
@@ -49,12 +50,12 @@
     MyDMU_P4ElementSpreadStrategy: 'd_left',
     MyDMU_P4EyeStrategy: 'fixed',
     MyDMU_P5MitigationAlert: true,
-    MyDMU_P5SymphonySpreadScheme: 'eden',
+    MyDMU_P5SymphonySpreadScheme: 'regular',
     MyDMU_P5SymphonyOrder: 'H2/D2/D4/ST/MT/D3/H1/D1',
     MyDMU_P5MitigationChannel: 'e',
     MyDMU_P5GroundFireCount: '3',
-    MyDMU_P5GroundFireGuideEnabled: true,
-    MyDMU_P5ForsakenGuideEnabled: true,
+    MyDMU_P5GroundFireGuideEnabled: false,
+    MyDMU_P5ForsakenGuideEnabled: false,
     MyDMU_P5ForsakenStart: '1',
   });
   const markTypes = [
@@ -105,19 +106,76 @@
     35, // RDM
     36, // BLU
   ];
+  const jobNameById = Object.freeze({
+    1: 'GLA',
+    2: 'PGL',
+    3: 'MRD',
+    4: 'LNC',
+    5: 'ARC',
+    6: 'CNJ',
+    7: 'THM',
+    19: 'PLD',
+    20: 'MNK',
+    21: 'WAR',
+    22: 'DRG',
+    23: 'BRD',
+    24: 'WHM',
+    25: 'BLM',
+    26: 'ACN',
+    27: 'SMN',
+    28: 'SCH',
+    29: 'ROG',
+    30: 'NIN',
+    31: 'MCH',
+    32: 'DRK',
+    33: 'AST',
+    34: 'SAM',
+    35: 'RDM',
+    36: 'BLU',
+    37: 'GNB',
+    38: 'DNC',
+    39: 'RPR',
+    40: 'SGE',
+    41: 'VPR',
+    42: 'PCT',
+  });
 
   let stringParty = [];
   let externalPartyRp;
   let partyUpdateTimer;
   let lastLiveParty = [];
+  let lastLivePlayerEvent;
   let arrReplayPartyMode = false;
   let arrReplayPartyCandidates = [];
   let arrReplayPartyReady = false;
   let arrReplayPartyPreservedForResume = false;
+  let arrReplayPartySpawnCursor = 0;
+  let arrReplayRoleById = new Map();
+  let arrReplayStrictRestoreZone;
+  let arrReplayStrictIdentityPinned = false;
+  let arrReplayStrictRestoreParty = [];
+  let arrReplayStrictRestorePlayerEvent;
+  const arrLogReplayNativePartySettleMs = 500;
+  let arrLogReplayTimer;
+  let arrLogReplayRestoreCaptured = false;
+  let arrLogReplayRestoreParty = [];
+  let arrLogReplayRestorePlayerEvent;
+  let arrLogReplayState = {
+    active: false,
+    pending: false,
+    published: false,
+    generation: 0,
+    zoneId: 0,
+    zoneName: '',
+    localPlayerId: undefined,
+    localPlayerName: undefined,
+    members: new Map(),
+  };
   let roleOverlayParty = [];
   let roleOverlayLastSeen = Number.NEGATIVE_INFINITY;
   let encounterState = {
     zoneId: 0,
+    zoneName: '',
     inEncounter: false,
     confirmed: false,
     locked: false,
@@ -160,22 +218,27 @@
 
   const normalizePartyId = (value) => value?.toString().trim().toUpperCase() ?? '';
 
-  const isValidRoleOverlayParty = (records) => {
-    if (!Array.isArray(records) || records.length !== roleOverlayRoles.length)
+  const isCompletePartyRoleMapping = (records, party) => {
+    if (!Array.isArray(records) || records.length !== roleOverlayRoles.length ||
+        !Array.isArray(party) || party.length !== roleOverlayRoles.length)
       return false;
     const ids = records.map((record) => normalizePartyId(record?.id));
     const roles = records.map((record) => record?.rp?.toString().trim().toUpperCase() ?? '');
-    if (ids.some((id) => id === '') || new Set(ids).size !== roleOverlayRoles.length ||
-        new Set(roles).size !== roleOverlayRoles.length ||
-        !roleOverlayRoles.every((role) => roles.includes(role)))
-      return false;
-
-    const liveIds = lastLiveParty
+    const partyIds = party
       .filter((member) => member.inParty)
       .map((member) => normalizePartyId(member.id));
-    return liveIds.length === roleOverlayRoles.length &&
-      new Set(liveIds).size === roleOverlayRoles.length &&
-      ids.every((id) => liveIds.includes(id));
+    return ids.every((id) => id !== '') &&
+      new Set(ids).size === roleOverlayRoles.length &&
+      new Set(roles).size === roleOverlayRoles.length &&
+      roleOverlayRoles.every((role) => roles.includes(role)) &&
+      partyIds.length === roleOverlayRoles.length &&
+      new Set(partyIds).size === roleOverlayRoles.length &&
+      ids.every((id) => partyIds.includes(id));
+  };
+
+  const isValidRoleOverlayParty = (records) => {
+    const party = arrReplayPartyMode ? stringParty : lastLiveParty;
+    return isCompletePartyRoleMapping(records, party);
   };
 
   const isRoleOverlayConnected = () => {
@@ -214,11 +277,24 @@
 
   const updatePartyRp = () => {
     if (arrReplayPartyMode) {
-      for (const member of stringParty) {
-        member.stringRP = arrReplayExpectedParty.find((expected) =>
-          expected.id === member.id && expected.name === member.name &&
-          expected.job === Number(member.job))?.rp ?? 'unknown';
+      if (isCompletePartyRoleMapping(externalPartyRp, stringParty)) {
+        for (const member of stringParty) {
+          const id = normalizePartyId(member.id);
+          member.stringRP = externalPartyRp.find((record) =>
+            normalizePartyId(record.id) === id)?.rp?.toString().trim().toUpperCase() ?? 'unknown';
+        }
+        return;
       }
+      if (arrReplayRoleById.size === roleOverlayRoles.length) {
+        for (const member of stringParty)
+          member.stringRP = arrReplayRoleById.get(normalizePartyId(member.id)) ?? 'unknown';
+        return;
+      }
+      defaultSort();
+      arrReplayRoleById = new Map(stringParty.map((member) => [
+        normalizePartyId(member.id),
+        member.stringRP,
+      ]));
       return;
     }
     if (isDebugPage || externalPartyRp === undefined) {
@@ -287,6 +363,17 @@
     return actorId;
   };
 
+  let arrReplayExternalEffectsAuthority = 'live';
+  const arrReplayExternalEffectsAllowed = () =>
+    arrReplayExternalEffectsAuthority === 'live' &&
+    !arrReplayState.active && !arrLogReplayState.active && !arrLogReplayState.pending;
+  const arrReplayBlockExternalEffects = (active) => {
+    arrReplayExternalEffectsAuthority = active ? 'replay' : 'quarantine';
+  };
+  const arrReplayReleaseExternalEffects = () => {
+    arrReplayExternalEffectsAuthority = 'live';
+  };
+
   const mark = (actorId, markType, localOnly = false) => {
     if (markType === 'none' || actorId === undefined)
       return;
@@ -296,6 +383,8 @@
     const actorIdNumber = normalizeActorId(actorId);
     if (!Number.isFinite(actorIdNumber))
       throw new Error(`非法 ActorID: ${actorId}`);
+    if (!arrReplayExternalEffectsAllowed())
+      return false;
 
     if (isDebugPage) {
       console.debug('String运行库 mark', actorIdNumber, markType, localOnly);
@@ -313,6 +402,8 @@
   };
 
   const doTextCommand = (text) => {
+    if (!arrReplayExternalEffectsAllowed())
+      return false;
     if (isDebugPage) {
       console.debug('String运行库 command', text);
       return;
@@ -337,6 +428,8 @@
   });
 
   const doQueueActions = (queue, note = 'String运行库队列') => {
+    if (!arrReplayExternalEffectsAllowed())
+      return false;
     const normalizedQueue = normalizeQueue(queue);
     if (isDebugPage) {
       console.debug('String运行库 queue', note, JSON.stringify(normalizedQueue, null, 1));
@@ -371,6 +464,8 @@
   const clearMark = (localOnly = false) => doQueueActions(getClearMarkQueue(localOnly), `clearMark localOnly:${localOnly}`);
 
   const doWaymarks = (waymark) => {
+    if (!arrReplayExternalEffectsAllowed())
+      return false;
     if (isDebugPage) {
       console.debug('String运行库 waymark', waymark);
       return;
@@ -382,9 +477,15 @@
     });
   };
 
-  const placeSave = () => callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'save' });
-  const placeLoad = () => callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'load' });
-  const placeClear = () => callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'clear' });
+  const placeSave = () => arrReplayExternalEffectsAllowed()
+    ? callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'save' })
+    : false;
+  const placeLoad = () => arrReplayExternalEffectsAllowed()
+    ? callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'load' })
+    : false;
+  const placeClear = () => arrReplayExternalEffectsAllowed()
+    ? callOverlayHandler({ call: 'PostNamazu', c: 'place', p: 'clear' })
+    : false;
 
   const vfxClientId = `raidboss-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   let vfxSessionPromise;
@@ -392,7 +493,70 @@
   let vfxHeartbeatTimer;
   let vfxHeartbeatInFlight = false;
   let vfxGeneration = 0;
-  const arrReplayQueueLimit = 4096;
+  let arrReplayWarmVfx = false;
+  let arrReplayWarmVfxScopes = new Map();
+  let arrReplayVfxRetainedMode = false;
+  let arrReplayVfxPhysicalActive = false;
+  let arrReplayVfxPhysicalRevision = 0;
+  let arrReplayVfxExpiryTimer;
+  let arrReplayVfxCleanupPromise;
+  let arrReplayVfxPublishChain = Promise.resolve();
+  let arrReplayVfxPublishGeneration = -1;
+  let arrReplayVfxStableIds = new Map();
+  const arrReplayVfxPhysicalScope = 'arr.replay.scene';
+  const arrReplayQueueLimit = 64;
+  const arrReplayQueueMaximumUtf8Bytes = 16 * 1024 * 1024;
+  const arrReplayMaximumEnvelopeUtf8Bytes = 256 * 1024;
+  const arrReplayStateProjectionVersion = 1;
+  const arrReplayMaximumStatePositionAbsolute = 10000;
+  const arrReplayMaximumStateHeadingAbsolute = 3.141593;
+  const arrReplayBrowserRpcTimeoutMs = 1000;
+  const arrReplayBrowserFastRetryMs = 500;
+  const arrReplayBrowserRetryMs = 5000;
+  const arrReplayBrowserRenewalMs = 2000;
+  const arrReplayBrowserMaximumHandshakeRpcAttempts = 4;
+  const arrReplayBrowserHandshakeBudgetMs = 15000;
+  const arrReplayBrowserReadinessProbeMs = 1000;
+  const arrReplayBrowserMaximumExplicitRetries = 3;
+  const arrReplayBrowserExplicitRetryCooldownMs = 5000;
+  const arrReplayBrowserPageRole = (() => {
+    let query = '';
+    try {
+      if (typeof globalThis.location?.search === 'string')
+        query = globalThis.location.search;
+      if (query === '' && typeof globalThis.location?.href === 'string') {
+        const question = globalThis.location.href.indexOf('?');
+        if (question >= 0)
+          query = globalThis.location.href.slice(question);
+      }
+    } catch (_error) {
+      return 'alerts';
+    }
+    const hash = query.indexOf('#');
+    if (hash >= 0)
+      query = query.slice(0, hash);
+    if (query.startsWith('?'))
+      query = query.slice(1);
+    for (const field of query.split('&')) {
+      if (field === '')
+        continue;
+      const equals = field.indexOf('=');
+      const rawKey = equals < 0 ? field : field.slice(0, equals);
+      const rawValue = equals < 0 ? '' : field.slice(equals + 1);
+      try {
+        if (decodeURIComponent(rawKey.replace(/\+/gu, ' ')) === 'alerts' &&
+            decodeURIComponent(rawValue.replace(/\+/gu, ' ')) === '0')
+          return 'timeline-only';
+      } catch (_error) {
+        // Only a successfully decoded explicit alerts=0 removes ARR authority.
+      }
+    }
+    return 'alerts';
+  })();
+  const arrReplayBrowserPageEligible =
+    arrReplayBrowserPageRole === 'alerts';
+  const arrReplayWarmBatchMaximumEvents = 64;
+  const arrReplayWarmBatchMaximumUtf8Bytes = 256 * 1024;
   const arrReplayAllowedLineLengths = Object.freeze({
     '03': [21, 21],
     '20': [13, 13],
@@ -431,16 +595,111 @@
     ContentDirectorActor: ['261'],
   });
   const arrReplayPinnedTargetlessAbilityIds = Object.freeze(['BB3C', 'BB3D', 'BB38']);
-  const arrReplayExpectedParty = Object.freeze([
-    Object.freeze({ id: '10091A82', name: '伊莉雅nq', job: 23, rp: 'D3' }),
-    Object.freeze({ id: '1007292D', name: '珂朵莉丶', job: 24, rp: 'H1' }),
-    Object.freeze({ id: '1006BBC2', name: '神奈备命', job: 19, rp: 'MT' }),
-    Object.freeze({ id: '10071ACF', name: '黑海黑鱼', job: 28, rp: 'H2' }),
-    Object.freeze({ id: '10073A61', name: '白羽苏芳', job: 32, rp: 'ST' }),
-    Object.freeze({ id: '100717E5', name: '小小泷丶', job: 39, rp: 'D1' }),
-    Object.freeze({ id: '1006676A', name: '秋水微澜', job: 22, rp: 'D2' }),
-    Object.freeze({ id: '1007157F', name: '克莱尔菲', job: 35, rp: 'D4' }),
+  const arrReplayFixtureProfiles = Object.freeze([
+    Object.freeze({
+      id: 'd033',
+      fixtureSha256: 'D0333A9A49FDF7ED3B85E9410450E0AE4EA002AF201BA6663C984728DE5B40D1',
+      headerPlayerIndex: 0,
+      headerJobs: Object.freeze([23, 24, 19, 28, 32, 39, 22, 35]),
+      localActorId: '0x10091A82',
+      localAlias: '吟游诗人',
+      localJob: 23,
+      maximumReplayMs: 1264261,
+      maximumSegmentSequence: 185292,
+      partyReadyByMs: 202,
+      p5NpcBaseId: 9020,
+      pullResets: Object.freeze([
+        Object.freeze({
+          chapterIndex: 0,
+          chapterType: 5,
+          relativeOffset: 149222,
+          replayMs: 8270,
+          reason: 'chapter-5',
+        }),
+        Object.freeze({
+          chapterIndex: 2,
+          chapterType: 2,
+          relativeOffset: 450566,
+          replayMs: 67766,
+          reason: 'chapter-2',
+        }),
+      ]),
+      party: Object.freeze([
+        Object.freeze({
+          id: '10091A82',
+          name: '吟游诗人',
+          job: 23,
+          currentHP: 0,
+          rp: 'D3',
+        }),
+        Object.freeze({ id: '1007292D', name: '白魔法师', job: 24, rp: 'H1' }),
+        Object.freeze({ id: '1006BBC2', name: '骑士', job: 19, rp: 'MT' }),
+        Object.freeze({ id: '10071ACF', name: '学者', job: 28, rp: 'H2' }),
+        Object.freeze({ id: '10073A61', name: '暗黑骑士', job: 32, rp: 'ST' }),
+        Object.freeze({ id: '100717E5', name: '钐镰客', job: 39, rp: 'D1' }),
+        Object.freeze({ id: '1006676A', name: '龙骑士', job: 22, rp: 'D2' }),
+        Object.freeze({ id: '1007157F', name: '赤魔法师', job: 35, rp: 'D4' }),
+      ]),
+    }),
+    Object.freeze({
+      id: '3fd',
+      fixtureSha256: '3FD189AADE796006304365133B431A0DCEFB02B5E9C9127556694829E06FA72A',
+      headerPlayerIndex: 2,
+      headerJobs: Object.freeze([28, 19, 23, 39, 32, 24, 41, 27]),
+      localActorId: '0x10025941',
+      localAlias: '吟游诗人',
+      localJob: 23,
+      maximumReplayMs: 1187331,
+      maximumSegmentSequence: 186309,
+      partyReadyByMs: 216,
+      p5NpcBaseId: 19511,
+      pullResets: Object.freeze([
+        Object.freeze({
+          chapterIndex: 0,
+          chapterType: 5,
+          relativeOffset: 145718,
+          replayMs: 9311,
+          reason: 'chapter-5',
+        }),
+      ]),
+      party: Object.freeze([
+        Object.freeze({ id: '10029515', name: '骑士', job: 19, rp: 'MT' }),
+        Object.freeze({ id: '1002751C', name: '暗黑骑士', job: 32, rp: 'ST' }),
+        Object.freeze({
+          id: '10025941',
+          name: '吟游诗人',
+          job: 23,
+          currentHP: 0,
+          rp: 'D1',
+        }),
+        Object.freeze({ id: '10021B42', name: '钐镰客', job: 39, rp: 'D2' }),
+        Object.freeze({ id: '10029456', name: '白魔法师', job: 24, rp: 'H1' }),
+        Object.freeze({ id: '10028A6A', name: '学者', job: 28, rp: 'H2' }),
+        Object.freeze({ id: '10026A73', name: '蝰蛇剑士', job: 41, rp: 'D3' }),
+        Object.freeze({ id: '10026C63', name: '召唤师', job: 27, rp: 'D4' }),
+      ]),
+    }),
   ]);
+  const arrReplayMaximumMs = Math.max(
+    ...arrReplayFixtureProfiles.map((profile) => profile.maximumReplayMs),
+  );
+  const arrReplayProfileById = new Map(
+    arrReplayFixtureProfiles.map((profile) => [profile.id, profile]),
+  );
+  const arrReplayFindFixtureProfile = (
+      fixtureSha256,
+      playerIndex,
+      localPlayerId,
+      localPlayerName) =>
+    arrReplayFixtureProfiles.find((profile) =>
+      profile.fixtureSha256 === fixtureSha256 &&
+      profile.headerPlayerIndex === playerIndex &&
+      profile.localActorId === localPlayerId &&
+      profile.localAlias === localPlayerName &&
+      profile.headerJobs[profile.headerPlayerIndex] === profile.localJob);
+  const arrReplayCurrentFixtureProfile = () => arrReplayProfileById.get(arrReplayState.profileId);
+  const arrReplayNextPullReset = () =>
+    arrReplayCurrentFixtureProfile()?.pullResets[arrReplayState.nextPullResetIndex];
   let arrReplayState = {
     active: false,
     epochHighWater: -1,
@@ -452,19 +711,104 @@
     lastReset: undefined,
     wallAnchorMs: 0,
     lastExposedReplayMs: 0,
-    playerIndex: 0,
+    profileId: undefined,
+    fixtureSha256: undefined,
+    playerIndex: undefined,
     localPlayerId: undefined,
     localPlayerName: undefined,
     partyReady: false,
+    lastSegmentSequence: -1,
+    cutSegmentSequence: -1,
+    warmComplete: false,
+    nextPullResetIndex: 0,
   };
   let arrReplayQueue = [];
   let arrReplayQueueHead = 0;
   let arrReplayPumpRunning = false;
-  const arrReplayCombatantLimit = 256;
+  let arrReplayProcessingItem;
+  let arrReplayPendingDeliveryCount = 0;
+  let arrReplayQueuedUtf8Bytes = 0;
+  let arrReplayIngressGeneration = 0;
+  let arrReplayIngressEpochHighWater = -1;
+  let arrReplayIngressActive = false;
+  let arrReplayCleanupToken = 0;
+  // 3FD contains 288 unique NPC spawns plus the fixed 8-player party.
+  // Type-5 chapter boundaries are replay barriers, not actor despawns.
+  const arrReplayCombatantLimit = 512;
   const arrReplayCombatantQueryLimit = 64;
   let arrReplayCombatants = new Map();
   let arrReplayCombatantsGeneration = -1;
   let arrReplayCombatantsPreservedForResume = false;
+  const arrReplayNativeDate = globalThis.Date;
+  const arrReplayNativePromise = globalThis.Promise;
+  const arrReplayNativePromiseThen = globalThis.Promise.prototype.then;
+  const arrReplayNativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+  const arrReplayNativeClearTimeout = globalThis.clearTimeout.bind(globalThis);
+  const arrReplayNativeSetInterval = globalThis.setInterval.bind(globalThis);
+  const arrReplayNativeClearInterval = globalThis.clearInterval.bind(globalThis);
+  const arrReplayNativeCallOverlayHandler =
+    typeof globalThis.callOverlayHandler === 'function'
+      ? globalThis.callOverlayHandler.bind(globalThis)
+      : undefined;
+  const arrReplayNativeCryptoGetRandomValues =
+    typeof globalThis.crypto?.getRandomValues === 'function'
+      ? globalThis.crypto.getRandomValues.bind(globalThis.crypto)
+      : undefined;
+  let arrReplayLastPageActivationUnixMicros = 0;
+  const arrReplayBrowserSession = {
+    status: arrReplayBrowserPageEligible
+      ? 'uninitialized'
+      : 'ineligible-timeline-only',
+    pageRole: arrReplayBrowserPageRole,
+    eligible: arrReplayBrowserPageEligible,
+    locked: false,
+    subscribed: false,
+    pageHidden: false,
+    pageSessionId: undefined,
+    pageActivatedAtUnixMicros: 0,
+    handshakeGeneration: 0,
+    handshakeTimer: undefined,
+    handshakeInFlight: false,
+    handshakeRpcAttempts: 0,
+    handshakeBudgetStartedAtMs: undefined,
+    rawRpcOutstanding: 0,
+    dormant: false,
+    dormantReason: undefined,
+    dormantCleanupInFlight: false,
+    dormantCleanupPromise: arrReplayNativePromise.resolve(),
+    overlayApiReadiness: 'unknown',
+    readinessObservedNotReady: false,
+    explicitRetryCount: 0,
+    lastExplicitRetryAtMs: undefined,
+    active: undefined,
+    candidate: undefined,
+    candidateDelivery: undefined,
+    postAckDelivery: undefined,
+    pageCleanupPromise: arrReplayNativePromise.resolve(),
+    lastError: undefined,
+  };
+  const arrReplaySchedulerLimits = Object.freeze({
+    maximumPendingTasks: 16384,
+    maximumCreatedTasks: 131072,
+    maximumCallbacksPerAdvance: 32768,
+    maximumDelayMilliseconds: 86400000,
+    maximumMicrotaskTurnsPerControlledRun: 4096,
+  });
+  const arrReplayVirtualTimerFirstHandle = 0x40000000;
+  let arrReplayVirtualTimerNextHandle = arrReplayVirtualTimerFirstHandle;
+  const arrReplayPromiseTimerHandles = new WeakMap();
+  let arrReplayControlledContext;
+  let arrReplayScheduler = {
+    generation: 0,
+    tasks: new Map(),
+    nextOrdinal: 0,
+    createdTasks: 0,
+    callbacksExecuted: 0,
+    peakPendingTasks: 0,
+    dateEpochMs: arrReplayNativeDate.now(),
+    nativeWakeHandle: undefined,
+    fault: undefined,
+  };
   const liveSemanticQueueLimit = 256;
   let liveSemanticState = {
     active: false,
@@ -1091,7 +1435,7 @@
     if (expectedSessionId === undefined || activeVfxSessionId !== expectedSessionId)
       return;
     if (vfxHeartbeatTimer !== undefined)
-      clearInterval(vfxHeartbeatTimer);
+      arrReplayNativeClearInterval(vfxHeartbeatTimer);
     vfxHeartbeatTimer = undefined;
     vfxHeartbeatInFlight = false;
     activeVfxSessionId = undefined;
@@ -1121,7 +1465,8 @@
     const interval = Number.isFinite(requestedInterval)
       ? Math.max(500, Math.min(2000, requestedInterval))
       : 1000;
-    vfxHeartbeatTimer = setInterval(async () => {
+    // The DLL lease is physical wall-clock state, not replay trigger time.
+    vfxHeartbeatTimer = arrReplayNativeSetInterval(async () => {
       if (activeVfxSessionId !== session.sessionId || vfxHeartbeatInFlight)
         return;
       vfxHeartbeatInFlight = true;
@@ -1226,48 +1571,343 @@
     throw new Error(result?.error ?? 'String VFX DLL 未返回成功状态');
   };
 
-  const submitVfxPrimitives = (scope, primitives) =>
-    callVfxEngine('frame', {
-      scope: normalizeVfxScope(scope),
-      drawings: normalizeVfxPrimitiveBatch(primitives),
+  const arrReplayVfxStableHash = (value) => {
+    let left = 0x811C9DC5;
+    let right = 0x9E3779B9;
+    for (let index = 0; index < value.length; ++index) {
+      const code = value.charCodeAt(index);
+      left = Math.imul(left ^ code, 0x01000193);
+      right = Math.imul(right ^ code, 0x85EBCA6B);
+      right ^= right >>> 13;
+    }
+    return `a${(left >>> 0).toString(16).padStart(8, '0')}` +
+      `${(right >>> 0).toString(16).padStart(8, '0')}`;
+  };
+  const arrReplayVfxCompareOrdinal = (left, right) =>
+    left < right ? -1 : left > right ? 1 : 0;
+
+  const arrReplayCancelVfxExpiryTimer = () => {
+    if (arrReplayVfxExpiryTimer !== undefined)
+      clearTimeout(arrReplayVfxExpiryTimer);
+    arrReplayVfxExpiryTimer = undefined;
+  };
+
+  const arrReplayRecordVfxPhysicalState = (active) => {
+    arrReplayVfxPhysicalActive = active;
+    ++arrReplayVfxPhysicalRevision;
+  };
+
+  const arrReplayAwaitWithTimeout = (
+      value,
+      timeoutMs,
+      timeoutMessage) =>
+    new arrReplayNativePromise((resolve, reject) => {
+      let settled = false;
+      const timeout = arrReplayNativeSetTimeout(() => {
+        if (settled)
+          return;
+        settled = true;
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+      arrReplayNativePromiseThen.call(
+        arrReplayNativePromise.resolve(value),
+        (result) => {
+          if (settled)
+            return;
+          settled = true;
+          arrReplayNativeClearTimeout(timeout);
+          resolve(result);
+        },
+        (error) => {
+          if (settled)
+            return;
+          settled = true;
+          arrReplayNativeClearTimeout(timeout);
+          reject(error);
+        },
+      );
     });
 
-  const clearVfxScope = (scope) =>
-    callVfxEngine('clearScope', { scope: normalizeVfxScope(scope) });
+  const arrReplayResetVfxPublishGeneration = (generation) => {
+    arrReplayVfxPublishGeneration = generation;
+    arrReplayVfxPublishChain = Promise.resolve();
+  };
 
-  const endVfxSession = async () => {
+  const arrReplayRetainedSceneAt = (replayMs) => {
+    const nextScopes = new Map();
+    const drawings = [];
+    let nearestClampedExpiry;
+    const sortedScopes = [...arrReplayWarmVfxScopes.entries()]
+      .sort(([left], [right]) => arrReplayVfxCompareOrdinal(left, right));
+    for (const [scope, entries] of sortedScopes) {
+      const alive = entries
+        .filter((entry) => entry.expiresAtReplayMs > replayMs)
+        .sort((left, right) =>
+          arrReplayVfxCompareOrdinal(left.drawing.id, right.drawing.id));
+      if (alive.length === 0)
+        continue;
+      nextScopes.set(scope, alive);
+      for (const entry of alive) {
+        const logicalId = `${scope}\0${entry.drawing.id}`;
+        const physicalId = arrReplayVfxStableHash(logicalId);
+        const previousLogicalId = arrReplayVfxStableIds.get(physicalId);
+        if (previousLogicalId !== undefined && previousLogicalId !== logicalId) {
+          throw new Error(
+            `ARR whole-scene stable id 碰撞：${previousLogicalId} / ${logicalId}`,
+          );
+        }
+        arrReplayVfxStableIds.set(physicalId, logicalId);
+        const remainingMilliseconds = entry.expiresAtReplayMs - replayMs;
+        if (remainingMilliseconds < vfxLimits.minimumDurationSeconds * 1000) {
+          nearestClampedExpiry = nearestClampedExpiry === undefined
+            ? entry.expiresAtReplayMs
+            : Math.min(nearestClampedExpiry, entry.expiresAtReplayMs);
+        }
+        drawings.push({
+          ...entry.drawing,
+          id: physicalId,
+          durationSeconds: Math.max(
+            vfxLimits.minimumDurationSeconds,
+            remainingMilliseconds / 1000,
+          ),
+        });
+      }
+    }
+    if (nextScopes.size > vfxLimits.maximumScopes || drawings.length > 32) {
+      throw new RangeError(
+        `ARR whole-scene 超过单帧上限：${nextScopes.size} scopes / ` +
+        `${drawings.length} drawings`,
+      );
+    }
+    arrReplayWarmVfxScopes = nextScopes;
+    return { drawings, nearestClampedExpiry };
+  };
+
+  const arrReplayScheduleVfxExpiry = (
+      expectedGeneration,
+      nearestClampedExpiry,
+      replayMs) => {
+    arrReplayCancelVfxExpiryTimer();
+    if (nearestClampedExpiry === undefined)
+      return;
+    const delayMilliseconds = Math.max(0, Math.ceil(nearestClampedExpiry - replayMs));
+    arrReplayVfxExpiryTimer = setTimeout(() => {
+      arrReplayVfxExpiryTimer = undefined;
+      if (expectedGeneration !== arrReplayState.generation ||
+          !arrReplayState.active || !arrReplayState.warmComplete ||
+          !arrReplayVfxRetainedMode)
+        return;
+      void arrReplayQueueWholeScenePublish(expectedGeneration).catch((error) => {
+        if (expectedGeneration !== arrReplayState.generation)
+          return;
+        return arrReplayFailClosedAndLock(`vfx-expiry:${error}`);
+      });
+    }, delayMilliseconds);
+    arrReplayVfxExpiryTimer?.unref?.();
+  };
+
+  const arrReplayPublishWholeScene = async (expectedGeneration) => {
+    if (expectedGeneration !== arrReplayState.generation ||
+        !arrReplayState.active || !arrReplayState.warmComplete ||
+        !arrReplayVfxRetainedMode) {
+      throw new Error('ARR whole-scene generation 已变化');
+    }
+    const replayMs = arrReplayClockSnapshot().replayMs;
+    const scene = arrReplayRetainedSceneAt(replayMs);
+    if (scene.drawings.length === 0) {
+      arrReplayCancelVfxExpiryTimer();
+      if (!arrReplayVfxPhysicalActive) {
+        return {
+          ok: true,
+          accepted: true,
+          virtual: true,
+          empty: true,
+          scope: arrReplayVfxPhysicalScope,
+        };
+      }
+      const result = await callVfxEngine('clearScope', { scope: arrReplayVfxPhysicalScope });
+      if (expectedGeneration !== arrReplayState.generation)
+        throw new Error('ARR whole-scene generation 在清理期间变化');
+      arrReplayRecordVfxPhysicalState(false);
+      return result;
+    }
+    const result = await callVfxEngine('frame', {
+      scope: arrReplayVfxPhysicalScope,
+      drawings: scene.drawings,
+    });
+    if (expectedGeneration !== arrReplayState.generation)
+      throw new Error('ARR whole-scene generation 在提交期间变化');
+    arrReplayRecordVfxPhysicalState(true);
+    arrReplayScheduleVfxExpiry(
+      expectedGeneration,
+      scene.nearestClampedExpiry,
+      arrReplayClockSnapshot().replayMs,
+    );
+    return result;
+  };
+
+  function arrReplayQueueWholeScenePublish(expectedGeneration) {
+    if (expectedGeneration !== arrReplayState.generation)
+      return Promise.reject(new Error('ARR whole-scene generation 已变化'));
+    if (arrReplayVfxPublishGeneration !== expectedGeneration)
+      arrReplayResetVfxPublishGeneration(expectedGeneration);
+    const publish = arrReplayVfxPublishChain
+      .catch(() => undefined)
+      .then(() => arrReplayPublishWholeScene(expectedGeneration));
+    if (arrReplayVfxPublishGeneration === expectedGeneration)
+      arrReplayVfxPublishChain = publish;
+    return publish;
+  }
+
+  const arrReplayRetainVfxFrame = (scope, drawings) => {
+    const replayMs = arrReplayClockSnapshot().replayMs;
+    const previous = arrReplayWarmVfxScopes;
+    const next = new Map(arrReplayWarmVfxScopes);
+    next.set(scope, drawings.map((drawing) => ({
+      drawing: { ...drawing },
+      expiresAtReplayMs: replayMs + drawing.durationSeconds * 1000,
+    })));
+    arrReplayWarmVfxScopes = next;
+    try {
+      const scene = arrReplayRetainedSceneAt(replayMs);
+      return scene.drawings.length;
+    } catch (error) {
+      arrReplayWarmVfxScopes = previous;
+      throw error;
+    }
+  };
+
+  const submitVfxPrimitives = (scope, primitives) => {
+    const normalizedScope = normalizeVfxScope(scope);
+    const normalizedDrawings = normalizeVfxPrimitiveBatch(primitives);
+    if (arrReplayVfxRetainedMode) {
+      const drawingCount = arrReplayRetainVfxFrame(normalizedScope, normalizedDrawings);
+      if (arrReplayWarmVfx || !arrReplayState.warmComplete) {
+        return Promise.resolve({
+          ok: true,
+          accepted: true,
+          virtual: true,
+          warming: true,
+          scope: normalizedScope,
+          drawingCount,
+        });
+      }
+      return arrReplayQueueWholeScenePublish(arrReplayState.generation);
+    }
+    return callVfxEngine('frame', {
+      scope: normalizedScope,
+      drawings: normalizedDrawings,
+    });
+  };
+
+  const clearVfxScope = (scope) => {
+    const normalizedScope = normalizeVfxScope(scope);
+    if (arrReplayVfxRetainedMode) {
+      arrReplayWarmVfxScopes.delete(normalizedScope);
+      if (arrReplayWarmVfx || !arrReplayState.warmComplete) {
+        return Promise.resolve({
+          ok: true,
+          accepted: true,
+          virtual: true,
+          warming: true,
+          scope: normalizedScope,
+        });
+      }
+      return arrReplayQueueWholeScenePublish(arrReplayState.generation);
+    }
+    return callVfxEngine('clearScope', { scope: normalizedScope });
+  };
+
+  const endVfxSession = async ({ acceptAlreadyRevoked = false } = {}) => {
+    arrReplayCancelVfxExpiryTimer();
+    const physicalRevisionAtStart = arrReplayVfxPhysicalRevision;
     vfxGeneration++;
     const endingPromise = vfxSessionPromise;
     const endingSessionId = activeVfxSessionId;
     if (vfxSessionPromise === endingPromise)
       vfxSessionPromise = undefined;
     stopVfxHeartbeat(endingSessionId);
-    if (endingPromise === undefined)
-      return { ok: true, active: false };
+    const confirmPhysicalCleanup = (result) => {
+      let confirmed = !arrReplayVfxPhysicalActive;
+      if (arrReplayVfxPhysicalRevision === physicalRevisionAtStart) {
+        arrReplayRecordVfxPhysicalState(false);
+        confirmed = true;
+      }
+      return {
+        ...result,
+        physicalCleanupConfirmed: confirmed,
+      };
+    };
+    if (endingPromise === undefined) {
+      return {
+        ok: true,
+        active: false,
+        physicalCleanupConfirmed: !arrReplayVfxPhysicalActive,
+      };
+    }
     try {
       let session;
       try {
-        session = await endingPromise;
+        session = await arrReplayAwaitWithTimeout(
+          endingPromise,
+          arrReplayBrowserRpcTimeoutMs,
+          `String VFX beginSession 清理等待超过 ${arrReplayBrowserRpcTimeoutMs}ms`,
+        );
       } catch (error) {
         // A pending begin belongs to the generation we just invalidated.  Its
         // success path explicitly ends the stale server session; a failed or
         // lost response is bounded by the DLL lease and must not clobber the
         // replacement generation.
-        return { ok: true, active: false, staleBegin: true };
+        return {
+          ok: true,
+          active: false,
+          staleBegin: true,
+          physicalCleanupConfirmed: !arrReplayVfxPhysicalActive,
+        };
       }
       if (isDebugPage)
-        return { ok: true, debug: true };
-      const result = await callOverlayHandler({
-        call: 'stringVfx',
-        action: 'endSession',
-        sessionId: session.sessionId,
-      });
+        return confirmPhysicalCleanup({ ok: true, debug: true });
+      const result = await arrReplayNativeCallWithTimeout(
+        {
+          call: 'stringVfx',
+          action: 'endSession',
+          sessionId: session.sessionId,
+        },
+        arrReplayBrowserRpcTimeoutMs,
+      );
+      if (acceptAlreadyRevoked && result?.code === 'stale_session') {
+        return confirmPhysicalCleanup({
+          ok: true,
+          accepted: true,
+          idempotent: true,
+          alreadyRevoked: true,
+        });
+      }
       if (result?.ok !== true)
         throw new Error(result?.error ?? 'String VFX DLL 会话结束失败');
-      return result;
+      return confirmPhysicalCleanup(result);
     } finally {
       stopVfxHeartbeat(endingSessionId);
     }
+  };
+
+  const arrReplayAcquireVfxCleanup = () => {
+    if (arrReplayVfxCleanupPromise !== undefined)
+      return arrReplayVfxCleanupPromise;
+    const cleanup = arrReplayNativePromise.resolve(
+      endVfxSession({ acceptAlreadyRevoked: true }),
+    );
+    arrReplayVfxCleanupPromise = cleanup;
+    const clearCleanup = () => {
+      if (arrReplayVfxCleanupPromise === cleanup)
+        arrReplayVfxCleanupPromise = undefined;
+    };
+    void arrReplayNativePromiseThen.call(
+      cleanup,
+      clearCleanup,
+      clearCleanup,
+    );
+    return cleanup;
   };
 
   const getVfxStatus = async () => {
@@ -1292,16 +1932,156 @@
   const arrReplaySafeInteger = (value, minimum, maximum) =>
     Number.isSafeInteger(value) && value >= minimum && value <= maximum;
 
+  const arrReplayUtf8StringBytes = (json) => {
+    let bytes = 0;
+    for (let index = 0; index < json.length; ++index) {
+      const codePoint = json.codePointAt(index);
+      if (codePoint > 0xFFFF)
+        ++index;
+      if (codePoint <= 0x7F)
+        ++bytes;
+      else if (codePoint <= 0x7FF)
+        bytes += 2;
+      else if (codePoint <= 0xFFFF)
+        bytes += 3;
+      else
+        bytes += 4;
+    }
+    return bytes;
+  };
+
+  const arrReplayUtf8JsonBytes = (value) => {
+    const json = JSON.stringify(value);
+    if (typeof json !== 'string')
+      throw new Error('ARR envelope 无法序列化');
+    return arrReplayUtf8StringBytes(json);
+  };
+
+  const arrReplayCloneJsonWithSize = (value) => {
+    const json = JSON.stringify(value);
+    if (typeof json !== 'string')
+      throw new Error('ARR envelope 无法序列化');
+    return {
+      value: JSON.parse(json),
+      bytes: arrReplayUtf8StringBytes(json),
+    };
+  };
+
+  const arrReplayRandomHexId = () => {
+    if (arrReplayNativeCryptoGetRandomValues === undefined)
+      throw new Error('ARR 浏览器页面会话要求 crypto.getRandomValues');
+    const bytes = new Uint8Array(16);
+    arrReplayNativeCryptoGetRandomValues(bytes);
+    let result = '';
+    for (const value of bytes)
+      result += value.toString(16).padStart(2, '0');
+    if (!/^[0-9a-f]{32}$/u.test(result))
+      throw new Error('ARR 浏览器页面会话随机ID生成失败');
+    return result;
+  };
+
+  const arrReplayPageActivationUnixMicros = () => {
+    const timeOrigin = Number(globalThis.performance?.timeOrigin);
+    const now = Number(globalThis.performance?.now?.());
+    const milliseconds = Number.isFinite(timeOrigin) && Number.isFinite(now)
+      ? timeOrigin + now
+      : arrReplayNativeDate.now();
+    if (!Number.isFinite(milliseconds))
+      throw new Error('ARR 浏览器页面会话激活时钟不可用');
+    const candidate = Math.floor(milliseconds * 1000);
+    if (!arrReplaySafeInteger(candidate, 1, Number.MAX_SAFE_INTEGER))
+      throw new Error('ARR 浏览器页面会话激活时钟超出安全整数');
+    arrReplayLastPageActivationUnixMicros = Math.max(
+      candidate,
+      arrReplayLastPageActivationUnixMicros + 1,
+    );
+    return arrReplayLastPageActivationUnixMicros;
+  };
+
+  const arrReplayNativeCallWithTimeout = (
+      request,
+      timeoutMs = arrReplayBrowserRpcTimeoutMs,
+      { trackRawRpc = false } = {}) =>
+    new arrReplayNativePromise((resolve, reject) => {
+      if (arrReplayNativeCallOverlayHandler === undefined) {
+        reject(new Error('callOverlayHandler 不可用'));
+        return;
+      }
+      let settled = false;
+      const timeout = arrReplayNativeSetTimeout(() => {
+        if (settled)
+          return;
+        settled = true;
+        reject(new Error(`ARR 浏览器桥调用超过 ${timeoutMs}ms`));
+      }, timeoutMs);
+      let result;
+      let rawRpcTracked = false;
+      const settleRawRpc = () => {
+        if (!rawRpcTracked)
+          return;
+        rawRpcTracked = false;
+        arrReplayBrowserSession.rawRpcOutstanding = Math.max(
+          0,
+          arrReplayBrowserSession.rawRpcOutstanding - 1,
+        );
+      };
+      try {
+        if (trackRawRpc) {
+          ++arrReplayBrowserSession.rawRpcOutstanding;
+          rawRpcTracked = true;
+        }
+        result = arrReplayNativeCallOverlayHandler(request);
+      } catch (error) {
+        settleRawRpc();
+        arrReplayNativeClearTimeout(timeout);
+        reject(error);
+        return;
+      }
+      arrReplayNativePromiseThen.call(
+        arrReplayNativePromise.resolve(result),
+        (value) => {
+          settleRawRpc();
+          if (settled)
+            return;
+          settled = true;
+          arrReplayNativeClearTimeout(timeout);
+          resolve(value);
+        },
+        (error) => {
+          settleRawRpc();
+          if (settled)
+            return;
+          settled = true;
+          arrReplayNativeClearTimeout(timeout);
+          reject(error);
+        },
+      );
+    });
+
+  const arrReplayIngressIsCurrent = (generation) =>
+    generation === arrReplayIngressGeneration;
+
   const arrReplayWallNow = () => {
     const value = globalThis.performance?.now?.();
     return Number.isFinite(value) ? value : Date.now();
   };
 
   const arrReplayClockSnapshot = () => {
+    if (arrReplayControlledContext?.generation === arrReplayState.generation) {
+      const { wallAnchorMs: _wallAnchorMs, lastExposedReplayMs: _lastExposed, ...publicState } =
+        arrReplayState;
+      return Object.freeze({
+        ...publicState,
+        replayMs: arrReplayControlledContext.replayMs,
+      });
+    }
     let exposedReplayMs = arrReplayState.replayMs;
-    if (arrReplayState.active) {
+    if (arrReplayState.active && arrReplayState.warmComplete) {
+      const fixtureProfile = arrReplayCurrentFixtureProfile();
+      if (fixtureProfile === undefined)
+        throw new Error('ARR active 状态缺少固定 fixture profile');
       const elapsed = Math.max(0, Math.floor(arrReplayWallNow() - arrReplayState.wallAnchorMs));
-      exposedReplayMs = Math.min(1264261, Math.max(
+      exposedReplayMs = Math.min(fixtureProfile.maximumReplayMs, Math.max(
         arrReplayState.lastExposedReplayMs,
         arrReplayState.replayMs + elapsed,
       ));
@@ -1312,8 +2092,682 @@
     return Object.freeze({ ...publicState, replayMs: exposedReplayMs });
   };
 
+  const arrReplaySchedulerFault = (error) => {
+    const normalized = error instanceof Error ? error : new Error(`${error}`);
+    arrReplayScheduler.fault ??= normalized;
+    return normalized;
+  };
+
+  const arrReplayPatchProperty = (target, key, value, restores) => {
+    if (target === undefined || target === null)
+      return;
+    const descriptor = Object.getOwnPropertyDescriptor(target, key);
+    try {
+      if (descriptor === undefined) {
+        Object.defineProperty(target, key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value,
+        });
+        restores.push(() => {
+          delete target[key];
+        });
+        return;
+      }
+      if ('value' in descriptor) {
+        if (descriptor.writable !== true)
+          throw new Error(`${key} 不可写`);
+        Object.defineProperty(target, key, { ...descriptor, value });
+      } else {
+        if (descriptor.configurable !== true)
+          throw new Error(`${key} accessor 不可替换`);
+        Object.defineProperty(target, key, {
+          configurable: descriptor.configurable,
+          enumerable: descriptor.enumerable,
+          writable: true,
+          value,
+        });
+      }
+      restores.push(() => Object.defineProperty(target, key, descriptor));
+    } catch (error) {
+      throw new Error(`ARR 受控上下文无法替换 ${key}: ${error}`);
+    }
+  };
+
+  const arrReplayIsVirtualTimerHandle = (handle) =>
+    Number.isSafeInteger(handle) &&
+    handle >= arrReplayVirtualTimerFirstHandle &&
+    handle < arrReplayVirtualTimerNextHandle;
+
+  const arrReplayScheduleVirtualTimeout = (callback, milliseconds = 0, ...args) => {
+    const context = arrReplayControlledContext;
+    if (context === undefined)
+      return arrReplayNativeSetTimeout(callback, milliseconds, ...args);
+    if (typeof callback !== 'function') {
+      const error = arrReplaySchedulerFault(
+        new TypeError('ARR 受控 setTimeout 只接受函数 callback'),
+      );
+      throw error;
+    }
+    const delay = Number(milliseconds);
+    if (!Number.isFinite(delay) || delay < 0 ||
+        delay > arrReplaySchedulerLimits.maximumDelayMilliseconds) {
+      const error = arrReplaySchedulerFault(
+        new RangeError(`ARR 受控 setTimeout 延迟非法：${milliseconds}`),
+      );
+      throw error;
+    }
+    if (context.generation !== arrReplayScheduler.generation ||
+        context.generation !== arrReplayState.generation) {
+      const error = arrReplaySchedulerFault(new Error('ARR 受控 setTimeout generation 已变化'));
+      throw error;
+    }
+    if (arrReplayScheduler.tasks.size >= arrReplaySchedulerLimits.maximumPendingTasks ||
+        arrReplayScheduler.createdTasks >= arrReplaySchedulerLimits.maximumCreatedTasks) {
+      const error = arrReplaySchedulerFault(new Error('ARR replay timer 达到任务硬上限'));
+      throw error;
+    }
+    if (arrReplayVirtualTimerNextHandle >= Number.MAX_SAFE_INTEGER) {
+      const error = arrReplaySchedulerFault(new Error('ARR replay timer handle 空间耗尽'));
+      throw error;
+    }
+    const handle = arrReplayVirtualTimerNextHandle++;
+    arrReplayScheduler.tasks.set(handle, {
+      handle,
+      generation: context.generation,
+      dueReplayMs: context.replayMs + Math.ceil(delay),
+      ordinal: ++arrReplayScheduler.nextOrdinal,
+      callback,
+      args,
+    });
+    context.promiseConstructionStack?.at(-1)?.push(handle);
+    ++arrReplayScheduler.createdTasks;
+    arrReplayScheduler.peakPendingTasks = Math.max(
+      arrReplayScheduler.peakPendingTasks,
+      arrReplayScheduler.tasks.size,
+    );
+    return handle;
+  };
+
+  const arrReplayClearVirtualTimeout = (handle) => {
+    if (arrReplayIsVirtualTimerHandle(handle)) {
+      arrReplayScheduler.tasks.delete(handle);
+      return;
+    }
+    arrReplayNativeClearTimeout(handle);
+  };
+
+  const arrReplayRejectControlledInterval = () => {
+    const error = arrReplaySchedulerFault(
+      new Error('ARR 受控 trigger pipeline 禁止 setInterval；请使用有界 setTimeout'),
+    );
+    throw error;
+  };
+
+  const arrReplayMakeControlledDate = () => {
+    const controlledNow = () =>
+      arrReplayScheduler.dateEpochMs + (arrReplayControlledContext?.replayMs ?? 0);
+    const ControlledDate = function(...args) {
+      if (new.target !== undefined) {
+        const actualArgs = args.length === 0 ? [controlledNow()] : args;
+        return Reflect.construct(arrReplayNativeDate, actualArgs, new.target);
+      }
+      return new arrReplayNativeDate(controlledNow()).toString();
+    };
+    Object.setPrototypeOf(ControlledDate, arrReplayNativeDate);
+    ControlledDate.prototype = arrReplayNativeDate.prototype;
+    Object.defineProperty(ControlledDate, 'now', {
+      configurable: true,
+      value: controlledNow,
+    });
+    return ControlledDate;
+  };
+
+  const arrReplayMakeControlledPromise = () => {
+    const ControlledPromise = function(executor) {
+      if (new.target === undefined)
+        throw new TypeError('Promise constructor 必须使用 new');
+      if (typeof executor !== 'function')
+        throw new TypeError('Promise executor 必须是函数');
+      const context = arrReplayControlledContext;
+      if (context === undefined)
+        return new arrReplayNativePromise(executor);
+      const timerHandles = [];
+      context.promiseConstructionStack.push(timerHandles);
+      let promise;
+      try {
+        promise = new arrReplayNativePromise(executor);
+      } finally {
+        context.promiseConstructionStack.pop();
+      }
+      if (timerHandles.length > 0)
+        arrReplayPromiseTimerHandles.set(promise, timerHandles);
+      return promise;
+    };
+    ControlledPromise.prototype = arrReplayNativePromise.prototype;
+    Object.setPrototypeOf(ControlledPromise, arrReplayNativePromise);
+    for (const method of ['resolve', 'reject', 'all', 'allSettled', 'any', 'race']) {
+      if (typeof arrReplayNativePromise[method] !== 'function')
+        continue;
+      Object.defineProperty(ControlledPromise, method, {
+        configurable: true,
+        value: (...args) => arrReplayNativePromise[method](...args),
+      });
+    }
+    return ControlledPromise;
+  };
+
+  const arrReplayControlledPromiseThen = function(onFulfilled, onRejected) {
+    const registrationContext = arrReplayControlledContext;
+    if (registrationContext === undefined) {
+      return arrReplayNativePromiseThen.call(this, onFulfilled, onRejected);
+    }
+    const timerHandles = arrReplayPromiseTimerHandles.get(this);
+    const deferredByReplayTimer = timerHandles !== undefined && timerHandles.length > 0;
+    // cactbot delaySeconds promises must not block the source event that
+    // created them.  Their continuations become pending work only when the
+    // generation-owned replay timer is actually due.
+    let trackedContext = deferredByReplayTimer ? undefined : registrationContext;
+    if (trackedContext !== undefined)
+      ++registrationContext.pendingPromiseContinuations;
+    let completed = false;
+    const finish = () => {
+      if (completed)
+        return;
+      completed = true;
+      if (trackedContext !== undefined) {
+        ++trackedContext.promiseActivity;
+        --trackedContext.pendingPromiseContinuations;
+      }
+    };
+    const wrap = (callback, rejected) => (value) => {
+      if (completed)
+        return undefined;
+      if (deferredByReplayTimer) {
+        if (registrationContext.generation !== arrReplayState.generation) {
+          finish();
+          return undefined;
+        }
+        const executionContext = arrReplayControlledContext;
+        if (executionContext === undefined ||
+            executionContext.generation !== registrationContext.generation) {
+          throw arrReplaySchedulerFault(
+            new Error('ARR replay timer Promise continuation 越过 generation'),
+          );
+        }
+        trackedContext = executionContext;
+        ++trackedContext.pendingPromiseContinuations;
+      } else if (arrReplayControlledContext !== registrationContext ||
+          registrationContext.generation !== arrReplayState.generation) {
+        finish();
+        return undefined;
+      }
+      ++trackedContext.promiseActivity;
+      if (typeof callback !== 'function') {
+        finish();
+        if (rejected)
+          throw value;
+        return value;
+      }
+      let result;
+      try {
+        result = callback(value);
+      } catch (error) {
+        finish();
+        throw error;
+      }
+      if (result !== null &&
+          (typeof result === 'object' || typeof result === 'function')) {
+        const resultTimerHandles = arrReplayPromiseTimerHandles.get(result);
+        if (resultTimerHandles !== undefined && resultTimerHandles.length > 0) {
+          if (chainedPromise !== undefined)
+            arrReplayPromiseTimerHandles.set(chainedPromise, resultTimerHandles);
+          finish();
+          return result;
+        }
+        let then;
+        try {
+          then = result.then;
+        } catch (error) {
+          finish();
+          throw error;
+        }
+        if (typeof then === 'function') {
+          return arrReplayNativePromiseThen.call(
+            arrReplayNativePromise.resolve(result),
+            (resolved) => {
+              finish();
+              return resolved;
+            },
+            (error) => {
+              finish();
+              throw error;
+            },
+          );
+        }
+      }
+      finish();
+      return result;
+    };
+    let chainedPromise;
+    try {
+      chainedPromise = arrReplayNativePromiseThen.call(
+        this,
+        wrap(onFulfilled, false),
+        wrap(onRejected, true),
+      );
+      if (deferredByReplayTimer)
+        arrReplayPromiseTimerHandles.set(chainedPromise, timerHandles);
+      return chainedPromise;
+    } catch (error) {
+      if (!deferredByReplayTimer)
+        finish();
+      throw error;
+    }
+  };
+
+  const arrReplayWarmTextSnapshot = () => {
+    if (!arrReplayWarmVfx || arrReplayState.warmComplete ||
+        typeof globalThis.document?.querySelectorAll !== 'function')
+      return [];
+    const holders = globalThis.document.querySelectorAll(
+      '#popup-text-info .holder, #popup-text-alert .holder, ' +
+      '#popup-text-alarm .holder, .popup-text-container-outer',
+    );
+    return [...holders].map((holder) => [
+      holder,
+      new Set([...(holder.childNodes ?? holder.children ?? [])]),
+    ]);
+  };
+
+  const arrReplayRestoreWarmTextSnapshot = (snapshot) => {
+    for (const [holder, originalChildren] of snapshot) {
+      for (const child of [...(holder.childNodes ?? holder.children ?? [])]) {
+        if (originalChildren.has(child))
+          continue;
+        if (typeof child.remove === 'function')
+          child.remove();
+        else if (typeof holder.removeChild === 'function')
+          holder.removeChild(child);
+      }
+    }
+  };
+
+  const arrReplayInstallControlledGlobals = (restores, suppressVisibleEffects) => {
+    arrReplayPatchProperty(
+      globalThis,
+      'Date',
+      arrReplayMakeControlledDate(),
+      restores,
+    );
+    arrReplayPatchProperty(
+      globalThis,
+      'Promise',
+      arrReplayMakeControlledPromise(),
+      restores,
+    );
+    arrReplayPatchProperty(
+      arrReplayNativePromise.prototype,
+      'then',
+      arrReplayControlledPromiseThen,
+      restores,
+    );
+    arrReplayPatchProperty(
+      globalThis,
+      'setTimeout',
+      arrReplayScheduleVirtualTimeout,
+      restores,
+    );
+    arrReplayPatchProperty(
+      globalThis,
+      'clearTimeout',
+      arrReplayClearVirtualTimeout,
+      restores,
+    );
+    arrReplayPatchProperty(
+      globalThis,
+      'setInterval',
+      arrReplayRejectControlledInterval,
+      restores,
+    );
+    arrReplayPatchProperty(
+      globalThis,
+      'clearInterval',
+      arrReplayNativeClearInterval,
+      restores,
+    );
+
+    if (!suppressVisibleEffects)
+      return;
+
+    const blockedOverlayCalls = new Set(['cactbotSay', 'PostNamazu']);
+    if (typeof globalThis.callOverlayHandler === 'function') {
+      const originalCallOverlayHandler = globalThis.callOverlayHandler;
+      arrReplayPatchProperty(
+        globalThis,
+        'callOverlayHandler',
+        function(request, ...args) {
+          if (blockedOverlayCalls.has(request?.call))
+            return Promise.resolve({ ok: true, accepted: false, suppressed: true });
+          return originalCallOverlayHandler.call(this, request, ...args);
+        },
+        restores,
+      );
+    }
+
+    const overlayApi = globalThis.OverlayPluginApi;
+    if (typeof overlayApi?.callHandler === 'function') {
+      const originalCallHandler = overlayApi.callHandler;
+      arrReplayPatchProperty(
+        overlayApi,
+        'callHandler',
+        function(message, callback) {
+          let request;
+          try {
+            request = JSON.parse(message);
+          } catch (_error) {
+            return originalCallHandler.call(this, message, callback);
+          }
+          if (!blockedOverlayCalls.has(request?.call))
+            return originalCallHandler.call(this, message, callback);
+          callback?.('{}');
+        },
+        restores,
+      );
+    }
+
+    if (typeof globalThis.Audio === 'function') {
+      const NativeAudio = globalThis.Audio;
+      const SuppressedAudio = function() {
+        this.volume = 1;
+      };
+      SuppressedAudio.prototype = Object.create(NativeAudio.prototype);
+      Object.defineProperties(SuppressedAudio.prototype, {
+        constructor: { value: SuppressedAudio },
+        play: { value: () => Promise.resolve() },
+        pause: { value: () => undefined },
+      });
+      arrReplayPatchProperty(globalThis, 'Audio', SuppressedAudio, restores);
+    }
+
+    if (typeof globalThis.speechSynthesis?.speak === 'function') {
+      arrReplayPatchProperty(
+        globalThis.speechSynthesis,
+        'speak',
+        () => undefined,
+        restores,
+      );
+    }
+
+    if (typeof globalThis.navigator?.getGamepads === 'function') {
+      arrReplayPatchProperty(
+        globalThis.navigator,
+        'getGamepads',
+        () => [],
+        restores,
+      );
+    }
+  };
+
+  const arrReplayDrainControlledMicrotasks = async (context) => {
+    let previousActivity = -1;
+    let stableTurns = 0;
+    for (let turn = 0;
+      turn < arrReplaySchedulerLimits.maximumMicrotaskTurnsPerControlledRun;
+      ++turn) {
+      context.microtaskTurns = turn + 1;
+      await arrReplayNativePromise.resolve();
+      if (arrReplayScheduler.fault !== undefined)
+        throw arrReplayScheduler.fault;
+      if (context.pendingPromiseContinuations === 0 &&
+          context.promiseActivity === previousActivity) {
+        if (++stableTurns >= 2)
+          return;
+      } else {
+        stableTurns = 0;
+      }
+      previousActivity = context.promiseActivity;
+    }
+    throw new Error(
+      `ARR trigger Promise 未在微任务硬上限内静止：` +
+      `${context.pendingPromiseContinuations} pending / ` +
+      `${context.promiseActivity} activity`,
+    );
+  };
+
+  const arrReplayRunControlled = async (replayMs, action) => {
+    if (!Number.isSafeInteger(replayMs) || replayMs < 0)
+      throw new Error(`ARR 受控执行 replayMs 非法：${replayMs}`);
+    if (typeof action !== 'function')
+      throw new TypeError('ARR 受控执行 action 必须是函数');
+    if (arrReplayControlledContext !== undefined)
+      throw new Error('ARR 受控执行禁止嵌套');
+    if (arrReplayScheduler.generation !== arrReplayState.generation)
+      throw new Error('ARR 受控执行 scheduler generation 已变化');
+
+    const suppressVisibleEffects = arrReplayState.active;
+    const textSnapshot = arrReplayWarmTextSnapshot();
+    const restores = [];
+    arrReplayControlledContext = {
+      generation: arrReplayState.generation,
+      replayMs,
+      pendingPromiseContinuations: 0,
+      promiseActivity: 0,
+      promiseConstructionStack: [],
+      microtaskTurns: 0,
+    };
+    let primaryError;
+    try {
+      arrReplayInstallControlledGlobals(restores, suppressVisibleEffects);
+      const actionResult = action();
+      arrReplayNativePromise.resolve(actionResult).then(
+        undefined,
+        (error) => {
+          arrReplaySchedulerFault(error);
+        },
+      );
+      await arrReplayDrainControlledMicrotasks(arrReplayControlledContext);
+      if (arrReplayScheduler.fault !== undefined)
+        throw arrReplayScheduler.fault;
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      for (const restore of restores.reverse()) {
+        try {
+          restore();
+        } catch (error) {
+          primaryError ??= new Error(`ARR 受控全局恢复失败：${error}`);
+        }
+      }
+      arrReplayControlledContext = undefined;
+      try {
+        arrReplayRestoreWarmTextSnapshot(textSnapshot);
+      } catch (error) {
+        primaryError ??= new Error(`ARR warm 文本隔离恢复失败：${error}`);
+      }
+    }
+    if (primaryError !== undefined)
+      throw primaryError;
+  };
+
+  const arrReplayCancelSchedulerWake = () => {
+    if (arrReplayScheduler.nativeWakeHandle !== undefined)
+      arrReplayNativeClearTimeout(arrReplayScheduler.nativeWakeHandle);
+    arrReplayScheduler.nativeWakeHandle = undefined;
+  };
+
+  const arrReplayResetScheduler = (generation, replayEpoch) => {
+    arrReplayCancelSchedulerWake();
+    const dateEpochMs = 946684800000 + (replayEpoch % 100000) * 172800000;
+    arrReplayScheduler = {
+      generation,
+      tasks: new Map(),
+      nextOrdinal: 0,
+      createdTasks: 0,
+      callbacksExecuted: 0,
+      peakPendingTasks: 0,
+      dateEpochMs,
+      nativeWakeHandle: undefined,
+      fault: undefined,
+    };
+  };
+
+  const arrReplayNextScheduledTask = (limitReplayMs, inclusive) => {
+    let next;
+    for (const task of arrReplayScheduler.tasks.values()) {
+      const inRange = inclusive
+        ? task.dueReplayMs <= limitReplayMs
+        : task.dueReplayMs < limitReplayMs;
+      if (!inRange)
+        continue;
+      if (next === undefined ||
+          task.dueReplayMs < next.dueReplayMs ||
+          task.dueReplayMs === next.dueReplayMs && task.ordinal < next.ordinal)
+        next = task;
+    }
+    return next;
+  };
+
+  const arrReplayRunScheduledThrough = async (limitReplayMs, inclusive) => {
+    if (!Number.isSafeInteger(limitReplayMs) || limitReplayMs < 0)
+      throw new Error(`ARR scheduler limit 非法：${limitReplayMs}`);
+    let callbacks = 0;
+    while (true) {
+      const task = arrReplayNextScheduledTask(limitReplayMs, inclusive);
+      if (task === undefined)
+        break;
+      arrReplayScheduler.tasks.delete(task.handle);
+      if (task.generation !== arrReplayState.generation ||
+          task.generation !== arrReplayScheduler.generation)
+        continue;
+      if (++callbacks > arrReplaySchedulerLimits.maximumCallbacksPerAdvance)
+        throw new Error('ARR replay timer 达到单次推进回调硬上限');
+      ++arrReplayScheduler.callbacksExecuted;
+      await arrReplayRunControlled(
+        task.dueReplayMs,
+        () => task.callback(...task.args),
+      );
+    }
+  };
+
+  const arrReplayArmSchedulerWake = () => {
+    arrReplayCancelSchedulerWake();
+    if (!arrReplayState.active || !arrReplayState.warmComplete ||
+        arrReplayScheduler.generation !== arrReplayState.generation ||
+        arrReplayScheduler.tasks.size === 0)
+      return;
+    const next = [...arrReplayScheduler.tasks.values()]
+      .filter((task) => task.generation === arrReplayState.generation)
+      .sort((left, right) =>
+        left.dueReplayMs - right.dueReplayMs || left.ordinal - right.ordinal)[0];
+    if (next === undefined)
+      return;
+    const now = arrReplayClockSnapshot().replayMs;
+    const delay = Math.max(0, Math.ceil(next.dueReplayMs - now));
+    const expectedGeneration = arrReplayState.generation;
+    arrReplayScheduler.nativeWakeHandle = arrReplayNativeSetTimeout(() => {
+      arrReplayScheduler.nativeWakeHandle = undefined;
+      if (expectedGeneration !== arrReplayState.generation ||
+          expectedGeneration !== arrReplayScheduler.generation ||
+          !arrReplayState.active || !arrReplayState.warmComplete)
+        return;
+      const currentReplayMs = arrReplayClockSnapshot().replayMs;
+      const failScheduler = (error) => {
+        if (expectedGeneration !== arrReplayState.generation)
+          return;
+        void arrReplayFailClosedAndLock(`trigger-scheduler:${error}`);
+      };
+      const schedulerRun = arrReplayRunScheduledThrough(currentReplayMs, true);
+      // Using the patched .then here would make the controlled run wait for
+      // the scheduler promise that is itself waiting for that controlled run.
+      void arrReplayNativePromiseThen.call(
+        schedulerRun,
+        () => {
+          try {
+            arrReplayArmSchedulerWake();
+          } catch (error) {
+            failScheduler(error);
+          }
+        },
+        failScheduler,
+      );
+    }, delay);
+    arrReplayScheduler.nativeWakeHandle?.unref?.();
+  };
+
+  const arrReplayAdvanceSchedulerBeforeSource = async (replayMs) => {
+    arrReplayCancelSchedulerWake();
+    // Equal-time tasks run after every source event at that replay timestamp.
+    await arrReplayRunScheduledThrough(replayMs, false);
+  };
+
+  const arrReplayCompleteSchedulerWarm = async (replayMs) => {
+    arrReplayCancelSchedulerWake();
+    await arrReplayRunScheduledThrough(replayMs, true);
+    await arrReplayRunControlled(replayMs, () => undefined);
+    if (arrReplayScheduler.fault !== undefined)
+      throw arrReplayScheduler.fault;
+  };
+
+  const scheduleArrReplayTask = (callback, delayMilliseconds) => {
+    if (!arrReplayState.active)
+      throw new Error('ARR replay task 只能在固定回放 epoch 内创建');
+    if (arrReplayControlledContext !== undefined)
+      return arrReplayScheduleVirtualTimeout(callback, delayMilliseconds);
+    const replayMs = arrReplayClockSnapshot().replayMs;
+    arrReplayControlledContext = {
+      generation: arrReplayState.generation,
+      replayMs,
+    };
+    try {
+      const handle = arrReplayScheduleVirtualTimeout(callback, delayMilliseconds);
+      arrReplayArmSchedulerWake();
+      return handle;
+    } finally {
+      arrReplayControlledContext = undefined;
+    }
+  };
+
+  const cancelArrReplayTask = (handle) => {
+    if (!arrReplayIsVirtualTimerHandle(handle))
+      throw new TypeError('ARR replay task handle 非法');
+    arrReplayScheduler.tasks.delete(handle);
+    arrReplayArmSchedulerWake();
+  };
+
+  const getArrReplaySchedulerState = () => Object.freeze({
+    generation: arrReplayScheduler.generation,
+    pendingTasks: arrReplayScheduler.tasks.size,
+    createdTasks: arrReplayScheduler.createdTasks,
+    callbacksExecuted: arrReplayScheduler.callbacksExecuted,
+    peakPendingTasks: arrReplayScheduler.peakPendingTasks,
+    nativeWakeArmed: arrReplayScheduler.nativeWakeHandle !== undefined,
+    faulted: arrReplayScheduler.fault !== undefined,
+    controlledActive: arrReplayControlledContext !== undefined,
+    controlledPendingPromiseContinuations:
+      arrReplayControlledContext?.pendingPromiseContinuations ?? 0,
+    controlledPromiseActivity: arrReplayControlledContext?.promiseActivity ?? 0,
+    controlledMicrotaskTurns: arrReplayControlledContext?.microtaskTurns ?? 0,
+  });
+
   const arrReplayClearCombatants = () => {
     arrReplayCombatants = new Map();
+    arrReplayCombatantsGeneration = arrReplayState.generation;
+    arrReplayCombatantsPreservedForResume = false;
+  };
+
+  const arrReplayPreserveCombatantsForPullReset = () => {
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
+    if (fixtureProfile === undefined)
+      throw new Error('ARR pull-reset 缺少固定 fixture profile');
+    for (const member of fixtureProfile.party) {
+      if (!arrReplayCombatants.has(member.id))
+        throw new Error(`ARR pull-reset 缺少固定party combatant：${member.id}`);
+    }
+    arrReplayCombatants = new Map(
+      [...arrReplayCombatants].map(([id, combatant]) => [id, { ...combatant }]),
+    );
     arrReplayCombatantsGeneration = arrReplayState.generation;
     arrReplayCombatantsPreservedForResume = false;
   };
@@ -1345,6 +2799,13 @@
       throw new Error(`ARR replay combatant ${field} 整数格式非法`);
     const parsed = Number.parseInt(value, radix);
     if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 0xFFFFFFFF)
+      throw new Error(`ARR replay combatant ${field} 整数越界`);
+    return parsed;
+  };
+
+  const arrReplayLineBoundedUInt = (value, field, maximum) => {
+    const parsed = arrReplayLineUInt32(value, field, 10);
+    if (parsed > maximum)
       throw new Error(`ARR replay combatant ${field} 整数越界`);
     return parsed;
   };
@@ -1381,7 +2842,9 @@
         update: arrReplayPositionUpdate(line, 40, 41, 42, 43, `${type}.source`),
       };
       if (line[6] === 'E0000000') {
-        if (arrReplayCombatants.get(sourceId)?.BNpcID !== 9020)
+        const expectedP5NpcBaseId = arrReplayCurrentFixtureProfile()?.p5NpcBaseId;
+        if (!Number.isInteger(expectedP5NpcBaseId) ||
+            arrReplayCombatants.get(sourceId)?.BNpcID !== expectedP5NpcBaseId)
           throw new Error(`ARR targetless Ability ${type} source未通过固定NPC门禁`);
         return [sourceMutation];
       }
@@ -1394,9 +2857,26 @@
       ];
     }
     if (type === '38') {
+      const currentHp =
+        arrReplayLineBoundedUInt(line[5], '38.CurrentHP', 0x7FFFFFFF);
+      const maxHp =
+        arrReplayLineBoundedUInt(line[6], '38.MaxHP', 0x7FFFFFFF);
+      const currentMp =
+        arrReplayLineBoundedUInt(line[7], '38.CurrentMP', 0xFFFF);
+      const maxMp =
+        arrReplayLineBoundedUInt(line[8], '38.MaxMP', 0xFFFF);
+      arrReplayLineBoundedUInt(line[9], '38.ShieldValue', 0xFFFF);
+      if (line[10] !== '0')
+        throw new Error('ARR replay combatant 38.Unknown 字段非法');
       return [{
         id: arrReplayLineActorId(line[2], '38.target'),
-        update: arrReplayPositionUpdate(line, 11, 12, 13, 14, '38.target'),
+        update: {
+          CurrentHP: currentHp,
+          MaxHP: maxHp,
+          CurrentMP: currentMp,
+          MaxMP: maxMp,
+          ...arrReplayPositionUpdate(line, 11, 12, 13, 14, '38.target'),
+        },
       }];
     }
     if (type !== '261' || line[2] !== 'Add')
@@ -1405,7 +2885,7 @@
     const id = arrReplayLineActorId(line[3], '261.actor');
     const allowedPairs = new Set([
       'BNpcID', 'BNpcNameID', 'Heading', 'Level', 'MaxHP', 'MaxMP',
-      'Name', 'OwnerID', 'PosX', 'PosY', 'PosZ',
+      'Name', 'OwnerID', 'TargetID', 'PosX', 'PosY', 'PosZ',
     ]);
     const pairs = new Map();
     for (let index = 4; index < line.length; index += 2) {
@@ -1427,6 +2907,13 @@
     update.PosX = arrReplayLineNumber(pairs.get('PosX'), '261.PosX');
     update.PosY = arrReplayLineNumber(pairs.get('PosY'), '261.PosY');
     update.PosZ = arrReplayLineNumber(pairs.get('PosZ'), '261.PosZ');
+    if (pairs.has('TargetID')) {
+      const targetId =
+        arrReplayLineUInt32(pairs.get('TargetID'), '261.TargetID', 16);
+      if (targetId !== 0xE0000000)
+        arrReplayStateActorId(targetId, '261.TargetID');
+      update.TargetID = targetId;
+    }
     return [{ id, update }];
   };
 
@@ -1453,6 +2940,331 @@
       arrReplayCombatants.set(id, combatant);
   };
 
+  const arrReplayStateUInt32 = (value, field) => {
+    if (!Number.isSafeInteger(value) || value < 0 || value > 0xFFFFFFFF)
+      throw new Error(`ARR state projection ${field} 必须是uint32`);
+    return value;
+  };
+
+  const arrReplayStateActorId = (value, field) => {
+    const parsed = arrReplayStateUInt32(value, field);
+    const id = parsed.toString(16).toUpperCase().padStart(8, '0');
+    if (!/^[14][0-9A-F]{7}$/u.test(id))
+      throw new Error(`ARR state projection ${field} 不在固定actor范围`);
+    return id;
+  };
+
+  const arrReplayStateTargetId = (value, field) => {
+    const parsed = arrReplayStateUInt32(value, field);
+    if (parsed === 0xE0000000)
+      return parsed;
+    arrReplayStateActorId(parsed, field);
+    return parsed;
+  };
+
+  const arrReplayStateOwnerId = (value, field) => {
+    const parsed = arrReplayStateUInt32(value, field);
+    if (parsed === 0)
+      return parsed;
+    arrReplayStateActorId(parsed, field);
+    return parsed;
+  };
+
+  const arrReplayStateInteger = (value, field, minimum, maximum) => {
+    if (!Number.isSafeInteger(value) || value < minimum || value > maximum)
+      throw new Error(`ARR state projection ${field} 整数越界`);
+    return value;
+  };
+
+  const arrReplayStateNumberPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/u;
+  const arrReplayStateNumber = (value, field, minimum, maximum) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) ||
+        Object.is(value, -0) || value < minimum || value > maximum) {
+      throw new Error(`ARR state projection ${field} 数值越界`);
+    }
+    const serialized = JSON.stringify(value);
+    if (typeof serialized !== 'string' ||
+        !arrReplayStateNumberPattern.test(serialized))
+      throw new Error(`ARR state projection ${field} 不是canonical 6位小数`);
+    return value;
+  };
+
+  const arrReplayStateSafeName = (value, field) => {
+    if (typeof value !== 'string' || value.trim().length === 0 ||
+        value.length > 64 || /[|\r\n\0]/u.test(value))
+      throw new Error(`ARR state projection ${field} 名称非法`);
+    return value;
+  };
+
+  const arrReplayExpectedStateOp = (semantic) => {
+    if (semantic === 'PlayerSpawn' || semantic === 'NpcSpawn')
+      return 'actor-upsert';
+    if (semantic === 'ActorMove' || semantic === 'ActorSetPos')
+      return 'actor-position';
+    if (semantic === 'ActorControlTarget')
+      return 'actor-target';
+    return undefined;
+  };
+
+  const arrReplayPrepareProjectedCombatantUpdates = (semantic, stateUpdates) => {
+    if (!arrReplayState.active ||
+        arrReplayCombatantsGeneration !== arrReplayState.generation)
+      throw new Error('ARR state projection generation栅栏失败');
+    if (!Array.isArray(stateUpdates) || stateUpdates.length > 1)
+      throw new Error('ARR state projection 每个语义事件只允许0或1项更新');
+    const expectedOp = arrReplayExpectedStateOp(semantic);
+    if (stateUpdates.length === 0) {
+      if (expectedOp !== undefined)
+        throw new Error(`ARR ${semantic} semantic 缺少${expectedOp}`);
+      return new Map();
+    }
+    const update = stateUpdates[0];
+    if (typeof update !== 'object' || update === null || Array.isArray(update) ||
+        update.op !== expectedOp)
+      throw new Error('ARR state projection op 与semantic不匹配');
+
+    const pending = new Map();
+    if (update.op === 'actor-upsert') {
+      if (!arrReplayExactKeys(update, ['op', 'actor']))
+        throw new Error('ARR actor-upsert DTO字段不精确');
+      const actor = update.actor;
+      if (!arrReplayExactKeys(actor, [
+        'ID', 'OwnerID', 'Type', 'TargetID', 'Job', 'Level', 'Name',
+        'CurrentHP', 'MaxHP', 'CurrentMP', 'MaxMP',
+        'PosX', 'PosY', 'PosZ', 'Heading',
+        'BNpcID', 'BNpcNameID', 'PartyType',
+      ]))
+        throw new Error('ARR actor-upsert actor字段不精确');
+      const id = arrReplayStateActorId(actor.ID, 'actor.ID');
+      const type = arrReplayStateInteger(actor.Type, 'actor.Type', 1, 2);
+      const partyType =
+        arrReplayStateInteger(actor.PartyType, 'actor.PartyType', 0, 1);
+      const job = arrReplayStateInteger(actor.Job, 'actor.Job', 0, 0xFF);
+      const name = arrReplayStateSafeName(actor.Name, 'actor.Name');
+      const bNpcId = arrReplayStateUInt32(actor.BNpcID, 'actor.BNpcID');
+      const bNpcNameId =
+        arrReplayStateUInt32(actor.BNpcNameID, 'actor.BNpcNameID');
+      const ownerId = arrReplayStateOwnerId(actor.OwnerID, 'actor.OwnerID');
+      if (semantic === 'PlayerSpawn') {
+        const fixtureMember =
+          arrReplayCurrentFixtureProfile()?.party.find((member) => member.id === id);
+        if (type !== 1 || partyType !== 1 || id[0] !== '1' ||
+            bNpcId !== 0 || bNpcNameId !== 0 ||
+            ownerId !== 0 ||
+            fixtureMember === undefined ||
+            fixtureMember.name !== name || fixtureMember.job !== job)
+          throw new Error('ARR player actor-upsert 未绑定固定匿名party身份');
+      } else if (type !== 2 || partyType !== 0 || id[0] !== '4') {
+        throw new Error('ARR NPC actor-upsert 类型或ID不一致');
+      }
+      const projected = {
+        ID: actor.ID,
+        OwnerID: ownerId,
+        Type: type,
+        TargetID: arrReplayStateTargetId(actor.TargetID, 'actor.TargetID'),
+        Job: job,
+        Level: arrReplayStateInteger(actor.Level, 'actor.Level', 0, 0xFF),
+        Name: name,
+        CurrentHP: arrReplayStateUInt32(actor.CurrentHP, 'actor.CurrentHP'),
+        MaxHP: arrReplayStateUInt32(actor.MaxHP, 'actor.MaxHP'),
+        CurrentMP: arrReplayStateUInt32(actor.CurrentMP, 'actor.CurrentMP'),
+        MaxMP: arrReplayStateUInt32(actor.MaxMP, 'actor.MaxMP'),
+        PosX: arrReplayStateNumber(
+          actor.PosX,
+          'actor.PosX',
+          -arrReplayMaximumStatePositionAbsolute,
+          arrReplayMaximumStatePositionAbsolute,
+        ),
+        PosY: arrReplayStateNumber(
+          actor.PosY,
+          'actor.PosY',
+          -arrReplayMaximumStatePositionAbsolute,
+          arrReplayMaximumStatePositionAbsolute,
+        ),
+        PosZ: arrReplayStateNumber(
+          actor.PosZ,
+          'actor.PosZ',
+          -arrReplayMaximumStatePositionAbsolute,
+          arrReplayMaximumStatePositionAbsolute,
+        ),
+        Heading: arrReplayStateNumber(
+          actor.Heading,
+          'actor.Heading',
+          -arrReplayMaximumStateHeadingAbsolute,
+          arrReplayMaximumStateHeadingAbsolute,
+        ),
+        BNpcID: bNpcId,
+        BNpcNameID: bNpcNameId,
+        PartyType: partyType,
+      };
+      if (!arrReplayCombatants.has(id) &&
+          arrReplayCombatants.size + pending.size >= arrReplayCombatantLimit)
+        throw new Error(`ARR replay combatant 达到${arrReplayCombatantLimit}状态硬上限`);
+      pending.set(id, projected);
+      return pending;
+    }
+
+    const id = arrReplayStateActorId(update.id, `${update.op}.id`);
+    const previous = arrReplayCombatants.get(id);
+    if (previous === undefined)
+      throw new Error(`ARR ${update.op} 引用了尚未upsert的actor：${id}`);
+    if (update.op === 'actor-position') {
+      if (!arrReplayExactKeys(update, [
+        'op', 'id', 'PosX', 'PosY', 'PosZ', 'Heading',
+      ]))
+        throw new Error('ARR actor-position DTO字段不精确');
+      pending.set(id, {
+        ...previous,
+        PosX: arrReplayStateNumber(
+          update.PosX,
+          'actor-position.PosX',
+          -arrReplayMaximumStatePositionAbsolute,
+          arrReplayMaximumStatePositionAbsolute,
+        ),
+        PosY: arrReplayStateNumber(
+          update.PosY,
+          'actor-position.PosY',
+          -arrReplayMaximumStatePositionAbsolute,
+          arrReplayMaximumStatePositionAbsolute,
+        ),
+        PosZ: arrReplayStateNumber(
+          update.PosZ,
+          'actor-position.PosZ',
+          -arrReplayMaximumStatePositionAbsolute,
+          arrReplayMaximumStatePositionAbsolute,
+        ),
+        Heading: arrReplayStateNumber(
+          update.Heading,
+          'actor-position.Heading',
+          -arrReplayMaximumStateHeadingAbsolute,
+          arrReplayMaximumStateHeadingAbsolute,
+        ),
+      });
+      return pending;
+    }
+
+    if (!arrReplayExactKeys(update, ['op', 'id', 'TargetID']))
+      throw new Error('ARR actor-target DTO字段不精确');
+    pending.set(id, {
+      ...previous,
+      TargetID: arrReplayStateTargetId(update.TargetID, 'actor-target.TargetID'),
+    });
+    return pending;
+  };
+
+  const arrReplayStateMatchesRoundedLogNumber = (stateValue, rawValue, field) => {
+    const logValue = arrReplayLineNumber(rawValue, field);
+    // Standard LogLine fields are formatted to three decimals while typed
+    // projection keeps six. Half a millimetre is the maximum representation
+    // loss; it is not a tolerance for two independent world states.
+    return Math.abs(stateValue - logValue) <= 0.000500001;
+  };
+
+  const arrReplayValidateSpawnProjectionConsistency = (event, projected) => {
+    const spawnEntries = event.logLines.filter((entry) => entry.line[0] === '03');
+    const memoryEntries = event.logLines.filter((entry) => entry.line[0] === '261');
+    if (event.logLines.length !== 2 ||
+        spawnEntries.length !== 1 || memoryEntries.length !== 1 ||
+        memoryEntries[0].line[2] !== 'Add' || projected.size !== 1)
+      throw new Error(`ARR ${event.semantic} 必须含唯一03/261与actor-upsert`);
+
+    const [projectedId, actor] = projected.entries().next().value;
+    const spawn = spawnEntries[0].line;
+    const memory = memoryEntries[0].line;
+    const spawnId = arrReplayLineActorId(spawn[2], '03.source');
+    const memoryId = arrReplayLineActorId(memory[3], '261.actor');
+    const spawnOwnerId = arrReplayLineUInt32(spawn[6], '03.OwnerID', 16);
+    const spawnMatches =
+      projectedId === spawnId && projectedId === memoryId &&
+      actor.ID === Number.parseInt(projectedId, 16) &&
+      actor.Name === spawn[3] &&
+      actor.Job === arrReplayLineUInt32(spawn[4], '03.Job', 16) &&
+      actor.Level === arrReplayLineUInt32(spawn[5], '03.Level', 16) &&
+      actor.OwnerID === spawnOwnerId &&
+      actor.BNpcNameID === arrReplayLineUInt32(spawn[9], '03.BNpcNameID', 10) &&
+      actor.BNpcID === arrReplayLineUInt32(spawn[10], '03.BNpcID', 10) &&
+      actor.CurrentHP === arrReplayLineUInt32(spawn[11], '03.CurrentHP', 10) &&
+      actor.MaxHP === arrReplayLineUInt32(spawn[12], '03.MaxHP', 10) &&
+      actor.CurrentMP === arrReplayLineUInt32(spawn[13], '03.CurrentMP', 10) &&
+      actor.MaxMP === arrReplayLineUInt32(spawn[14], '03.MaxMP', 10) &&
+      arrReplayStateMatchesRoundedLogNumber(actor.PosX, spawn[17], '03.PosX') &&
+      arrReplayStateMatchesRoundedLogNumber(actor.PosY, spawn[18], '03.PosY') &&
+      arrReplayStateMatchesRoundedLogNumber(actor.PosZ, spawn[19], '03.PosZ') &&
+      arrReplayStateMatchesRoundedLogNumber(actor.Heading, spawn[20], '03.Heading');
+    if (!spawnMatches)
+      throw new Error(`ARR ${event.semantic} actor-upsert 与03不一致`);
+
+    const requiredPairs = [
+      'BNpcID', 'BNpcNameID', 'Heading', 'Level', 'MaxHP', 'MaxMP',
+      'Name', 'OwnerID', 'TargetID', 'PosX', 'PosY', 'PosZ',
+    ];
+    const pairs = new Map();
+    for (let index = 4; index < memory.length; index += 2) {
+      const key = memory[index];
+      if (!requiredPairs.includes(key) || pairs.has(key))
+        throw new Error(`ARR ${event.semantic} 261 pair非法或重复：${key}`);
+      pairs.set(key, memory[index + 1]);
+    }
+    if (pairs.size !== requiredPairs.length ||
+        requiredPairs.some((key) => !pairs.has(key)))
+      throw new Error(`ARR ${event.semantic} 261 Add字段不完整`);
+    const memoryMatches =
+      actor.BNpcID === arrReplayLineUInt32(pairs.get('BNpcID'), '261.BNpcID', 16) &&
+      actor.BNpcNameID ===
+        arrReplayLineUInt32(pairs.get('BNpcNameID'), '261.BNpcNameID', 16) &&
+      actor.Level === arrReplayLineUInt32(pairs.get('Level'), '261.Level', 10) &&
+      actor.MaxHP === arrReplayLineUInt32(pairs.get('MaxHP'), '261.MaxHP', 10) &&
+      actor.MaxMP === arrReplayLineUInt32(pairs.get('MaxMP'), '261.MaxMP', 10) &&
+      actor.Name === pairs.get('Name') &&
+      actor.OwnerID === arrReplayLineUInt32(pairs.get('OwnerID'), '261.OwnerID', 16) &&
+      actor.TargetID ===
+        arrReplayLineUInt32(pairs.get('TargetID'), '261.TargetID', 16) &&
+      arrReplayStateMatchesRoundedLogNumber(
+        actor.PosX, pairs.get('PosX'), '261.PosX') &&
+      arrReplayStateMatchesRoundedLogNumber(
+        actor.PosY, pairs.get('PosY'), '261.PosY') &&
+      arrReplayStateMatchesRoundedLogNumber(
+        actor.PosZ, pairs.get('PosZ'), '261.PosZ') &&
+      arrReplayStateMatchesRoundedLogNumber(
+        actor.Heading, pairs.get('Heading'), '261.Heading');
+    if (!memoryMatches)
+      throw new Error(`ARR ${event.semantic} actor-upsert 与261 Add不一致`);
+  };
+
+  const arrReplayValidateTargetProjectionConsistency = (event, projected) => {
+    if (event.logLines.length !== 1 || projected.size !== 1)
+      throw new Error('ARR ActorControlTarget 必须含唯一261与actor-target');
+    const line = event.logLines[0].line;
+    const sourceId = arrReplayLineActorId(line[3], '261.Change.source');
+    const targetId = arrReplayLineUInt32(line[5], '261.Change.TargetID', 16);
+    const [projectedId, actor] = projected.entries().next().value;
+    if (projectedId !== sourceId ||
+        actor.ID !== Number.parseInt(sourceId, 16) ||
+        actor.TargetID !== targetId)
+      throw new Error('ARR actor-target 与261 Change/TargetID不一致');
+  };
+
+  const arrReplayPrepareSemanticCombatantUpdates = (event) => {
+    const projected = arrReplayPrepareProjectedCombatantUpdates(
+      event.semantic,
+      event.stateUpdates,
+    );
+    // Typed updates are authoritative for spawn, raw movement, set-position,
+    // and the pinned target-change semantic. Other cactbot LogLine projections
+    // carry fresher source/target positions (cast/ability/status) and remain
+    // the single adapter for those disjoint semantics.
+    if (arrReplayExpectedStateOp(event.semantic) !== undefined) {
+      if (event.semantic === 'PlayerSpawn' || event.semantic === 'NpcSpawn') {
+        arrReplayPrepareCombatantUpdates(event.logLines);
+        arrReplayValidateSpawnProjectionConsistency(event, projected);
+      } else if (event.semantic === 'ActorControlTarget') {
+        arrReplayValidateTargetProjectionConsistency(event, projected);
+      }
+      return projected;
+    }
+    return arrReplayPrepareCombatantUpdates(event.logLines);
+  };
+
   const getArrReplayCombatants = (ids) => {
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > arrReplayCombatantQueryLimit)
       throw new TypeError(`ARR replay combatant 查询必须包含1-${arrReplayCombatantQueryLimit}个精确ID`);
@@ -1474,45 +3286,309 @@
     });
   };
 
-  const arrReplayDispatchCombatState = (inGameCombat) => {
+  const arrReplayDispatchCombatState = (
+      inGameCombat,
+      { localOnly = false } = {}) => {
     if (typeof window.dispatchOverlayEvent !== 'function')
       throw new Error('dispatchOverlayEvent 不可用');
     window.dispatchOverlayEvent({
       type: 'onInCombatChangedEvent',
       detail: { inGameCombat },
+      stringArrReplaySyntheticCombat: true,
+      stringArrReplayLocalOnly: localOnly,
     });
   };
 
-  const arrReplayRestoreLiveParty = () => {
-    arrReplayPartyMode = false;
-    arrReplayPartyCandidates = [];
-    arrReplayPartyReady = false;
-    arrReplayPartyPreservedForResume = false;
-    arrReplayState.partyReady = false;
-    if (lastLiveParty.length === 0) {
-      stringParty = [];
-      return;
+  const arrReplayApplySyntheticZone = async (
+      zoneId,
+      zoneName,
+      {
+        localOnly = false,
+        isCurrent = () => true,
+        failOnConfigError = false,
+      } = {}) => {
+    if (!Number.isInteger(zoneId) || zoneId < 0 || typeof zoneName !== 'string')
+      throw new Error('ARR synthetic ChangeZone 参数非法');
+    if (!isCurrent())
+      return false;
+    if (localOnly) {
+      syncEncounterState({
+        zoneId,
+        zoneName,
+        inEncounter: zoneId === dancingMadUltimateZoneId,
+        confirmed: false,
+        locked: false,
+        revision: encounterState.revision + 1,
+        config: safeEncounterConfig,
+      });
+    } else {
+      let configError;
+      let configResult;
+      try {
+        configResult = await callStringConfig(
+          'enterZone',
+          { zoneId, zoneName },
+          {
+            applyState: false,
+            timeoutMs: arrReplayBrowserRpcTimeoutMs,
+          },
+        );
+      } catch (error) {
+        configError = error;
+      }
+      if (!isCurrent())
+        return false;
+      if (configError !== undefined) {
+        if (failOnConfigError)
+          throw configError;
+        console.warn('String ARR synthetic ChangeZone 配置同步失败，使用安全状态', configError);
+        syncEncounterState({
+          zoneId,
+          zoneName,
+          inEncounter: zoneId === dancingMadUltimateZoneId,
+          confirmed: false,
+          locked: false,
+          revision: encounterState.revision + 1,
+          config: safeEncounterConfig,
+        });
+      } else {
+        syncEncounterState(configResult.state);
+      }
     }
     if (typeof window.dispatchOverlayEvent !== 'function')
       throw new Error('dispatchOverlayEvent 不可用');
     window.dispatchOverlayEvent({
-      type: 'PartyChanged',
-      party: lastLiveParty.map((member) => ({ ...member })),
-      stringArrReplayRestore: true,
+      type: 'ChangeZone',
+      zoneID: zoneId,
+      zoneName,
+      stringArrReplaySyntheticZone: true,
+      stringArrReplayStrictZoneApplied: true,
+    });
+    return true;
+  };
+
+  const arrReplayEnterStrictZone = async (options) => {
+    if (arrReplayStrictRestoreZone === undefined &&
+        encounterState.zoneId !== dancingMadUltimateZoneId) {
+      arrReplayStrictRestoreZone = {
+        zoneId: encounterState.zoneId,
+        zoneName: encounterState.zoneName ?? '',
+      };
+    }
+    return await arrReplayApplySyntheticZone(
+      dancingMadUltimateZoneId,
+      '妖星乱舞绝境战',
+      options,
+    );
+  };
+
+  const arrReplayRestoreStrictZone = async (options) => {
+    const restore = arrReplayStrictRestoreZone;
+    if (restore === undefined)
+      return true;
+    const restored = await arrReplayApplySyntheticZone(
+      restore.zoneId,
+      restore.zoneName,
+      options,
+    );
+    if (restored && arrReplayStrictRestoreZone === restore)
+      arrReplayStrictRestoreZone = undefined;
+    return restored;
+  };
+
+  const broadcastArrReplayParty = (active, members) => {
+    callOverlayHandler({
+      call: 'broadcast',
+      source: 'stringUserJS',
+      msg: {
+        type: 'arrReplayParty',
+        active,
+        party: members.map((member) => ({
+          id: member.id,
+          name: member.name,
+          job: member.job,
+          inParty: member.inParty !== false,
+        })),
+      },
     });
   };
 
-  const arrReplayResetSyntheticParty = () => {
-    arrReplayPartyMode = true;
+  const arrReplayClonePlayerEvent = (event) => event === undefined
+    ? undefined
+    : {
+      ...event,
+      detail: { ...(event.detail ?? {}) },
+    };
+
+  const arrReplayPinStrictIdentity = () => {
+    if (arrReplayStrictIdentityPinned)
+      return;
+    arrReplayStrictIdentityPinned = true;
+    arrReplayStrictRestoreParty =
+      lastLiveParty.map((member) => ({ ...member }));
+    arrReplayStrictRestorePlayerEvent =
+      arrReplayClonePlayerEvent(lastLivePlayerEvent);
+  };
+
+  const arrReplayUnpinStrictIdentity = () => {
+    arrReplayStrictIdentityPinned = false;
+    arrReplayStrictRestoreParty = [];
+    arrReplayStrictRestorePlayerEvent = undefined;
+  };
+
+  const arrReplayPartyRestoreSnapshot = () =>
+    (arrReplayStrictIdentityPinned
+      ? arrReplayStrictRestoreParty
+      : lastLiveParty).map((member) => ({ ...member }));
+
+  const arrReplayRestoreLiveParty = ({ broadcast = true } = {}) => {
+    const restoreParty = arrReplayPartyRestoreSnapshot();
+    arrReplayPartyMode = false;
     arrReplayPartyCandidates = [];
     arrReplayPartyReady = false;
     arrReplayPartyPreservedForResume = false;
+    arrReplayPartySpawnCursor = 0;
+    arrReplayRoleById = new Map();
     arrReplayState.partyReady = false;
+    if (typeof window.dispatchOverlayEvent !== 'function')
+      throw new Error('dispatchOverlayEvent 不可用');
+    window.dispatchOverlayEvent({
+      type: 'PartyChanged',
+      party: restoreParty,
+      stringArrReplayRestore: true,
+    });
+    if (broadcast)
+      broadcastArrReplayParty(false, restoreParty);
+  };
+
+  const arrReplayRestoreLivePlayer = async ({
+    isCurrent = () => true,
+  } = {}) => {
+    if (!arrReplayStrictIdentityPinned || !isCurrent())
+      return true;
+    const restorePlayerEvent =
+      arrReplayClonePlayerEvent(arrReplayStrictRestorePlayerEvent);
+    if (restorePlayerEvent !== undefined) {
+      if (typeof window.dispatchOverlayEvent !== 'function')
+        throw new Error('dispatchOverlayEvent 不可用');
+      window.dispatchOverlayEvent({
+        ...restorePlayerEvent,
+        type: 'onPlayerChangedEvent',
+        detail: { ...(restorePlayerEvent.detail ?? {}) },
+        stringArrReplayRestore: true,
+        stringArrReplayStrictRestore: true,
+      });
+      return isCurrent();
+    }
+    try {
+      await arrReplayNativeCallWithTimeout(
+        { call: 'cactbotRequestPlayerUpdate' },
+        arrReplayBrowserRpcTimeoutMs,
+      );
+    } catch (error) {
+      // A cold page has no truthful identity to synthesize. Ask the event
+      // source once, but keep cleanup successful when no live source exists.
+      console.warn('String ARR 冷页恢复本地玩家请求失败', error);
+    }
+    return isCurrent();
+  };
+
+  const arrReplayPrepareSyntheticParty = () => {
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
+    if (fixtureProfile === undefined || fixtureProfile.party.length !== 8)
+      throw new Error('ARR lifecycle 缺少固定8人 fixture party');
+    arrReplayPartyMode = true;
+    arrReplayPartyCandidates = fixtureProfile.party.map((member) => ({
+      ...member,
+      inParty: true,
+      stringRP: member.rp,
+    }));
+    arrReplayPartyReady = true;
+    arrReplayPartyPreservedForResume = false;
+    arrReplayPartySpawnCursor = 0;
+    arrReplayRoleById = new Map(arrReplayPartyCandidates.map((member) => [
+      normalizePartyId(member.id),
+      member.stringRP,
+    ]));
+    arrReplayState.partyReady = true;
+
+    const tanks = arrReplayPartyCandidates.filter((member) => tankJobs.includes(member.job)).length;
+    const healers = arrReplayPartyCandidates.filter((member) => healerJobs.includes(member.job)).length;
+    const dps = arrReplayPartyCandidates.filter((member) => dpsJobs.includes(member.job)).length;
+    const localMatches = arrReplayPartyCandidates.filter((member) =>
+      `0x${member.id}` === fixtureProfile.localActorId);
+    const local = localMatches[0];
+    const fixtureRoles = arrReplayPartyCandidates.map((member) => member.stringRP);
+    const partyIds = arrReplayPartyCandidates.map((member) => member.id);
+    const partyNames = arrReplayPartyCandidates.map((member) => member.name);
+    if (fixtureProfile.headerJobs.length !== 8 ||
+        !Number.isInteger(fixtureProfile.headerPlayerIndex) ||
+        fixtureProfile.headerPlayerIndex < 0 ||
+        fixtureProfile.headerPlayerIndex >= fixtureProfile.headerJobs.length ||
+        fixtureProfile.headerJobs[fixtureProfile.headerPlayerIndex] !==
+          fixtureProfile.localJob ||
+        arrReplayState.playerIndex !== fixtureProfile.headerPlayerIndex ||
+        arrReplayState.localPlayerId !== fixtureProfile.localActorId ||
+        arrReplayState.localPlayerName !== fixtureProfile.localAlias ||
+        tanks !== 2 || healers !== 2 || dps !== 4 ||
+        new Set(partyIds).size !== 8 || new Set(partyNames).size !== 8 ||
+        localMatches.length !== 1 ||
+        local.name !== fixtureProfile.localAlias ||
+        local.job !== fixtureProfile.localJob ||
+        !Number.isSafeInteger(local.currentHP) || local.currentHP < 0 ||
+        new Set(fixtureRoles).size !== 8 ||
+        !['MT', 'ST', 'H1', 'H2', 'D1', 'D2', 'D3', 'D4'].every((role) =>
+          fixtureRoles.includes(role)))
+      throw new Error('ARR fixed party未通过header身份、actor唯一性或2T2H4D门禁');
+  };
+
+  const arrReplayPublishSyntheticParty = () => {
+    if (!arrReplayPartyReady || arrReplayPartyCandidates.length !== 8)
+      throw new Error('ARR fixed party尚未准备完成');
+    if (typeof window.dispatchOverlayEvent !== 'function')
+      throw new Error('dispatchOverlayEvent 不可用');
+    window.dispatchOverlayEvent({
+      type: 'PartyChanged',
+      party: arrReplayPartyCandidates.map((member) => ({ ...member })),
+      stringArrReplaySynthetic: true,
+      stringArrReplayPinnedBeforeSourceZero: true,
+    });
+    broadcastArrReplayParty(true, arrReplayPartyCandidates);
+  };
+
+  const arrReplayPublishSyntheticPlayer = () => {
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
+    const local = fixtureProfile === undefined
+      ? undefined
+      : arrReplayPartyCandidates.find((member) =>
+        `0x${member.id}` === fixtureProfile.localActorId);
+    const job = local === undefined ? undefined : jobNameById[local.job];
+    if (local === undefined || job === undefined ||
+        local.name !== fixtureProfile.localAlias ||
+        local.job !== fixtureProfile.localJob ||
+        !Number.isSafeInteger(local.currentHP) || local.currentHP < 0)
+      throw new Error('ARR synthetic Player 缺少显式本地成员');
+    if (typeof window.dispatchOverlayEvent !== 'function')
+      throw new Error('dispatchOverlayEvent 不可用');
+    window.dispatchOverlayEvent({
+      type: 'onPlayerChangedEvent',
+      detail: {
+        id: Number.parseInt(local.id, 16),
+        name: local.name,
+        job,
+        currentHP: local.currentHP,
+      },
+      stringArrReplaySynthetic: true,
+      stringArrReplayPinnedBeforeSourceZero: true,
+    });
   };
 
   const arrReplayAcceptPlayerSpawn = (event) => {
-    if (arrReplayPartyReady)
+    if (!arrReplayPartyReady || arrReplayPartySpawnCursor >= 8)
       throw new Error('ARR PlayerSpawn 超过固定8人快照');
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
+    if (fixtureProfile === undefined)
+      throw new Error('ARR PlayerSpawn 缺少固定 fixture profile');
     const spawnLines = event.logLines.filter((entry) => entry.line[0] === '03');
     if (spawnLines.length !== 1)
       throw new Error('ARR PlayerSpawn 缺少唯一标准03');
@@ -1525,43 +3601,324 @@
         !Number.isInteger(job) ||
         !tankJobs.includes(job) && !healerJobs.includes(job) && !dpsJobs.includes(job))
       throw new Error('ARR PlayerSpawn party字段非法');
-    if (arrReplayPartyCandidates.some((member) => member.id === id || member.name === name))
-      throw new Error('ARR PlayerSpawn party ID/name不唯一');
-    const expected = arrReplayExpectedParty[arrReplayPartyCandidates.length];
+    const expected = fixtureProfile.party[arrReplayPartySpawnCursor];
     if (expected === undefined || expected.id !== id || expected.name !== name || expected.job !== job)
-      throw new Error('ARR PlayerSpawn与固定header job/actor映射不一致');
+      throw new Error('ARR PlayerSpawn与固定spawn-order party快照不一致');
+    ++arrReplayPartySpawnCursor;
+  };
 
-    arrReplayPartyCandidates.push({ id, name, job, inParty: true, stringRP: expected.rp });
-    if (arrReplayPartyCandidates.length !== 8)
+  const arrLogReplayResetRoster = (zoneId, zoneName, active, pending) => {
+    const wasReplay = arrLogReplayState.active || arrLogReplayState.pending;
+    clearTimeout(arrLogReplayTimer);
+    arrLogReplayTimer = undefined;
+    arrLogReplayState = {
+      active,
+      pending,
+      published: false,
+      generation: arrLogReplayState.generation + 1,
+      zoneId,
+      zoneName,
+      localPlayerId: undefined,
+      localPlayerName: undefined,
+      members: new Map(),
+    };
+    if (active || pending)
+      arrReplayBlockExternalEffects(true);
+    else if (wasReplay)
+      arrReplayBlockExternalEffects(false);
+    arrReplayPartyMode = active;
+    arrReplayPartyCandidates = [];
+    arrReplayPartyReady = false;
+    arrReplayPartySpawnCursor = 0;
+    arrReplayRoleById = new Map();
+  };
+
+  const arrLogReplayCaptureRestoreState = () => {
+    if (arrLogReplayRestoreCaptured)
       return;
+    arrLogReplayRestoreCaptured = true;
+    arrLogReplayRestoreParty = lastLiveParty.map((member) => ({ ...member }));
+    arrLogReplayRestorePlayerEvent = lastLivePlayerEvent === undefined
+      ? undefined
+      : {
+        ...lastLivePlayerEvent,
+        detail: { ...(lastLivePlayerEvent.detail ?? {}) },
+      };
+  };
 
-    const tanks = arrReplayPartyCandidates.filter((member) => tankJobs.includes(member.job)).length;
-    const healers = arrReplayPartyCandidates.filter((member) => healerJobs.includes(member.job)).length;
-    const dps = arrReplayPartyCandidates.filter((member) => dpsJobs.includes(member.job)).length;
-    const localMatches = arrReplayPartyCandidates.filter((member) =>
-      `0x${member.id}` === arrReplayState.localPlayerId &&
-      member.name === arrReplayState.localPlayerName);
-    const indexedLocal = arrReplayPartyCandidates[arrReplayState.playerIndex];
-    const fixtureRoles = arrReplayPartyCandidates.map((member) => member.stringRP);
-    if (tanks !== 2 || healers !== 2 || dps !== 4 || localMatches.length !== 1 ||
-        indexedLocal !== localMatches[0] || new Set(fixtureRoles).size !== 8 ||
-        !['MT', 'ST', 'H1', 'H2', 'D1', 'D2', 'D3', 'D4'].every((role) =>
-          fixtureRoles.includes(role)))
-      throw new Error('ARR synthetic party未通过2T2H4D或本地玩家双重门禁');
+  const arrLogReplayClearRestoreState = () => {
+    arrLogReplayRestoreCaptured = false;
+    arrLogReplayRestoreParty = [];
+    arrLogReplayRestorePlayerEvent = undefined;
+  };
 
-    arrReplayPartyReady = true;
-    arrReplayState.partyReady = true;
-    if (typeof window.dispatchOverlayEvent !== 'function')
-      throw new Error('dispatchOverlayEvent 不可用');
-    window.dispatchOverlayEvent({
-      type: 'PartyChanged',
-      party: arrReplayPartyCandidates.map((member) => ({ ...member })),
-      stringArrReplaySynthetic: true,
+  const arrLogReplayCancelForStrictReplay = () => {
+    if (!arrLogReplayState.active && !arrLogReplayState.pending)
+      return;
+    clearTimeout(arrLogReplayTimer);
+    arrLogReplayTimer = undefined;
+    arrLogReplayState = {
+      active: false,
+      pending: false,
+      published: false,
+      generation: arrLogReplayState.generation + 1,
+      zoneId: 0,
+      zoneName: '',
+      localPlayerId: undefined,
+      localPlayerName: undefined,
+      members: new Map(),
+    };
+    arrLogReplayClearRestoreState();
+  };
+
+  const arrLogReplayMatchesNativeParty = () => {
+    if (arrLogReplayState.members.size !== 8)
+      return false;
+    const nativeParty = lastLiveParty.filter((member) => member.inParty);
+    if (nativeParty.length !== 8)
+      return false;
+    const nativeById = new Map(nativeParty.map((member) => [
+      normalizePartyId(member.id),
+      member,
+    ]));
+    if (nativeById.size !== 8)
+      return false;
+    return [...arrLogReplayState.members.values()].every((replayMember) => {
+      const nativeMember = nativeById.get(normalizePartyId(replayMember.id));
+      return nativeMember !== undefined &&
+        nativeMember.name === replayMember.name &&
+        Number(nativeMember.job) === replayMember.job;
     });
   };
 
-  const arrReplayFailClosed = async (reason) => {
+  const arrLogReplayStopForNativeParty = () => {
+    if ((!arrLogReplayState.active && !arrLogReplayState.pending) ||
+        !arrLogReplayMatchesNativeParty())
+      return false;
+    arrLogReplayResetRoster(0, '', false, false);
+    arrLogReplayClearRestoreState();
+    broadcastArrReplayParty(false, lastLiveParty);
+    return true;
+  };
+
+  const arrLogReplayDispatchCombat = (inGameCombat) => {
+    if (typeof window.dispatchOverlayEvent !== 'function')
+      throw new Error('dispatchOverlayEvent 不可用');
+    window.dispatchOverlayEvent({
+      type: 'onInCombatChangedEvent',
+      detail: { inGameCombat },
+      stringArrReplayDetected: true,
+    });
+  };
+
+  const arrLogReplayRestoreLiveState = (zoneId, zoneName) => {
+    const wasActive = arrLogReplayState.active || arrLogReplayState.pending;
+    const restoreParty = arrLogReplayRestoreCaptured
+      ? arrLogReplayRestoreParty.map((member) => ({ ...member }))
+      : lastLiveParty.map((member) => ({ ...member }));
+    const restorePlayerEvent = arrLogReplayRestoreCaptured &&
+      arrLogReplayRestorePlayerEvent !== undefined
+      ? {
+        ...arrLogReplayRestorePlayerEvent,
+        detail: { ...(arrLogReplayRestorePlayerEvent.detail ?? {}) },
+      }
+      : lastLivePlayerEvent;
+    arrLogReplayResetRoster(0, '', false, false);
+    arrLogReplayClearRestoreState();
+    if (!wasActive)
+      return;
+    arrLogReplayDispatchCombat(false);
+    window.dispatchOverlayEvent({
+      type: 'PartyChanged',
+      party: restoreParty,
+      stringArrReplayRestore: true,
+    });
+    broadcastArrReplayParty(false, restoreParty);
+    if (restorePlayerEvent !== undefined) {
+      window.dispatchOverlayEvent({
+        ...restorePlayerEvent,
+        detail: { ...(restorePlayerEvent.detail ?? {}) },
+        stringArrReplayRestore: true,
+      });
+    }
+    window.dispatchOverlayEvent({
+      type: 'ChangeZone',
+      zoneID: zoneId,
+      zoneName,
+      stringArrReplaySyntheticZone: true,
+    });
+  };
+
+  const arrLogReplayTryPublish = () => {
+    if (!arrLogReplayState.active || arrLogReplayState.published ||
+        arrLogReplayState.members.size !== 8 ||
+        arrLogReplayState.localPlayerId === undefined ||
+        arrLogReplayState.localPlayerName === undefined)
+      return;
+    const party = [...arrLogReplayState.members.values()];
+    const tanks = party.filter((member) => tankJobs.includes(member.job)).length;
+    const healers = party.filter((member) => healerJobs.includes(member.job)).length;
+    const dps = party.filter((member) => dpsJobs.includes(member.job)).length;
+    const local = party.find((member) =>
+      member.id === arrLogReplayState.localPlayerId &&
+      member.name === arrLogReplayState.localPlayerName);
+    if (tanks !== 2 || healers !== 2 || dps !== 4 || local === undefined)
+      return;
+    const jobName = jobNameById[local.job];
+    if (jobName === undefined)
+      return;
+
+    arrReplayPartyMode = true;
+    arrReplayPartyReady = true;
+    clearTimeout(partyUpdateTimer);
+    createParty(party);
+    arrLogReplayState.published = true;
+    window.dispatchOverlayEvent({
+      type: 'ChangeZone',
+      zoneID: arrLogReplayState.zoneId,
+      zoneName: arrLogReplayState.zoneName,
+      stringArrReplaySyntheticZone: true,
+    });
+    window.dispatchOverlayEvent({
+      type: 'PartyChanged',
+      party: party.map((member) => ({ ...member })),
+      stringArrReplaySynthetic: true,
+      stringArrReplayDetected: true,
+    });
+    broadcastArrReplayParty(true, party);
+    window.dispatchOverlayEvent({
+      type: 'onPlayerChangedEvent',
+      detail: {
+        name: local.name,
+        job: jobName,
+        currentHP: local.currentHP,
+        maxHP: local.maxHP,
+      },
+      stringArrReplayDetected: true,
+    });
+    arrLogReplayDispatchCombat(true);
+  };
+
+  const arrLogReplayActivate = (generation) => {
+    if (!arrLogReplayState.pending || arrLogReplayState.generation !== generation)
+      return;
+    if (arrLogReplayStopForNativeParty())
+      return;
+    arrLogReplayState.pending = false;
+    arrLogReplayDispatchCombat(false);
+    arrLogReplayState.active = true;
+    arrReplayPartyMode = true;
+    arrLogReplayTryPublish();
+  };
+
+  const arrLogReplayPlayerSpawn = (line) => {
+    if ((!arrLogReplayState.active && !arrLogReplayState.pending) ||
+        arrLogReplayState.members.size >= 8)
+      return;
+    const id = normalizePartyId(line[2]);
+    const name = line[3];
+    const job = Number.parseInt(line[4], 16);
+    const currentHP = Number.parseInt(line[11], 10);
+    const maxHP = Number.parseInt(line[12], 10);
+    if (!/^1[0-9A-F]{7}$/u.test(id) || typeof name !== 'string' || name.length === 0 ||
+        name.length > 64 || /[|\r\n\0]/u.test(name) || !Number.isInteger(job) ||
+        !tankJobs.includes(job) && !healerJobs.includes(job) && !dpsJobs.includes(job) ||
+        !Number.isFinite(currentHP) || !Number.isFinite(maxHP))
+      return;
+    if ([...arrLogReplayState.members.values()].some((member) => member.name === name))
+      return;
+    arrLogReplayState.members.set(id, {
+      id,
+      name,
+      job,
+      inParty: true,
+      currentHP,
+      maxHP,
+    });
+    if (arrLogReplayStopForNativeParty())
+      return;
+    arrLogReplayTryPublish();
+  };
+
+  const handleArrLogReplayLine = (event) => {
+    if (arrReplayState.active)
+      return;
+    const line = event?.line;
+    if (!Array.isArray(line))
+      return;
+    if (line[0] === '01') {
+      const zoneId = Number.parseInt(line[2], 16);
+      const zoneName = line[3];
+      if (!Number.isInteger(zoneId) || zoneId < 0 || typeof zoneName !== 'string')
+        return;
+      if ((arrLogReplayState.active || arrLogReplayState.pending) &&
+          zoneId !== dancingMadUltimateZoneId) {
+        arrLogReplayRestoreLiveState(zoneId, zoneName);
+        return;
+      }
+      if (zoneId !== dancingMadUltimateZoneId)
+        return;
+      if (arrLogReplayState.active) {
+        arrLogReplayDispatchCombat(false);
+        arrLogReplayResetRoster(zoneId, zoneName, true, false);
+        return;
+      }
+      arrLogReplayCaptureRestoreState();
+      arrLogReplayResetRoster(zoneId, zoneName, false, true);
+      const generation = arrLogReplayState.generation;
+      arrLogReplayTimer = setTimeout(
+        () => arrLogReplayActivate(generation),
+        arrLogReplayNativePartySettleMs,
+      );
+      arrLogReplayTimer?.unref?.();
+      return;
+    }
+    if (!arrLogReplayState.active && !arrLogReplayState.pending)
+      return;
+    if (line[0] === '02') {
+      const id = normalizePartyId(line[2]);
+      const name = line[3];
+      if (/^1[0-9A-F]{7}$/u.test(id) && typeof name === 'string' && name.length > 0 &&
+          name.length <= 64 && !/[|\r\n\0]/u.test(name)) {
+        arrLogReplayState.localPlayerId = id;
+        arrLogReplayState.localPlayerName = name;
+        arrLogReplayTryPublish();
+      }
+      return;
+    }
+    if (line[0] === '03')
+      arrLogReplayPlayerSpawn(line);
+  };
+
+  const arrReplayCleanupFailed = (result) =>
+    result?.ok !== true && result?.stale !== true;
+
+  const arrReplayFailClosed = async (
+      reason,
+      expectedIngressGeneration,
+      { localOverlayRestore = false } = {}) => {
+    if (expectedIngressGeneration !== undefined &&
+        expectedIngressGeneration !== arrReplayIngressGeneration) {
+      return {
+        ok: false,
+        stale: true,
+        cleanupToken: arrReplayCleanupToken,
+        localResetApplied: false,
+        vfxCleanupConfirmed: !arrReplayVfxPhysicalActive,
+        error: 'ingress-generation-changed',
+      };
+    }
+    const cleanupToken = ++arrReplayCleanupToken;
+    const cleanupIsCurrent = () => cleanupToken === arrReplayCleanupToken;
+    let cleanupError;
+    const recordCleanupError = (stage, error) => {
+      cleanupError ??= `${stage}:${error}`.slice(0, 512);
+    };
+    ++arrReplayIngressGeneration;
+    arrReplayIngressActive = false;
     const frozenReplayMs = arrReplayClockSnapshot().replayMs;
+    arrReplayCancelVfxExpiryTimer();
+    arrReplayVfxRetainedMode = true;
     arrReplayState = {
       ...arrReplayState,
       active: false,
@@ -1570,25 +3927,110 @@
       wallAnchorMs: arrReplayWallNow(),
       generation: arrReplayState.generation + 1,
       lastReset: `${reason}`.slice(0, 256),
+      warmComplete: false,
     };
+    arrReplayResetScheduler(arrReplayState.generation, arrReplayState.replayEpoch);
+    arrReplayResetVfxPublishGeneration(arrReplayState.generation);
     arrReplayClearCombatants();
-    arrReplayQueue = [];
-    arrReplayQueueHead = 0;
+    arrReplayBlockExternalEffects(false);
+    arrReplayWarmVfx = false;
+    arrReplayWarmVfxScopes = new Map();
+    arrReplayVfxStableIds = new Map();
+    arrReplayDropQueuedDeliveriesAsStale();
     try {
-      arrReplayRestoreLiveParty();
+      arrReplayDispatchCombatState(false, { localOnly: localOverlayRestore });
     } catch (error) {
+      recordCleanupError('combat', error);
+      console.warn('String ARR 回放失败关闭时 raidboss reset 失败', error);
+    }
+    let vfxCleanupConfirmed = false;
+    try {
+      const vfxResult = await arrReplayAcquireVfxCleanup();
+      vfxCleanupConfirmed = vfxResult?.physicalCleanupConfirmed === true;
+      if (!vfxCleanupConfirmed)
+        recordCleanupError('vfx', 'physical cleanup was not confirmed');
+    } catch (error) {
+      recordCleanupError('vfx', error);
+      console.warn('String ARR 回放失败关闭时 VFX 全局清理失败', error);
+    }
+    if (!cleanupIsCurrent()) {
+      return {
+        ok: false,
+        stale: true,
+        cleanupToken,
+        localResetApplied: true,
+        vfxCleanupConfirmed,
+        error: 'cleanup-superseded-after-vfx',
+      };
+    }
+    try {
+      arrReplayRestoreLiveParty({ broadcast: !localOverlayRestore });
+    } catch (error) {
+      recordCleanupError('party', error);
       console.warn('String ARR 回放失败关闭时实际队伍恢复失败', error);
     }
     try {
-      arrReplayDispatchCombatState(false);
+      const zoneRestored = await arrReplayRestoreStrictZone({
+        localOnly: localOverlayRestore,
+        isCurrent: cleanupIsCurrent,
+        failOnConfigError: !localOverlayRestore,
+      });
+      if (!zoneRestored)
+        recordCleanupError('zone', 'cleanup superseded');
     } catch (error) {
-      console.warn('String ARR 回放失败关闭时 raidboss reset 失败', error);
+      recordCleanupError('zone', error);
+      console.warn('String ARR 回放失败关闭时区域恢复失败', error);
+    }
+    if (!cleanupIsCurrent()) {
+      return {
+        ok: false,
+        stale: true,
+        cleanupToken,
+        localResetApplied: true,
+        vfxCleanupConfirmed,
+        error: 'cleanup-superseded-after-zone',
+      };
     }
     try {
-      await endVfxSession();
+      const playerRestored = await arrReplayRestoreLivePlayer({
+        isCurrent: cleanupIsCurrent,
+      });
+      if (!playerRestored)
+        recordCleanupError('player', 'cleanup superseded');
     } catch (error) {
-      console.warn('String ARR 回放失败关闭时 VFX 全局清理失败', error);
+      recordCleanupError('player', error);
+      console.warn('String ARR 回放失败关闭时本地玩家恢复失败', error);
     }
+    if (!cleanupIsCurrent()) {
+      return {
+        ok: false,
+        stale: true,
+        cleanupToken,
+        localResetApplied: true,
+        vfxCleanupConfirmed,
+        error: 'cleanup-superseded-after-player',
+      };
+    }
+    arrReplayUnpinStrictIdentity();
+    if (cleanupError !== undefined) {
+      return {
+        ok: false,
+        stale: false,
+        cleanupToken,
+        localResetApplied: true,
+        vfxCleanupConfirmed,
+        error: cleanupError,
+      };
+    }
+    arrReplayVfxRetainedMode = false;
+    arrReplayWarmVfxScopes = new Map();
+    return {
+      ok: true,
+      stale: false,
+      cleanupToken,
+      localResetApplied: true,
+      vfxCleanupConfirmed: true,
+    };
   };
 
   const arrReplayValidateLogLine = (entry, semantic) => {
@@ -1645,25 +4087,54 @@
       throw new Error('ARR ContentDirectorActor 只接受十种固定ID的标准261 Add投影');
   };
 
-  const arrReplayProcessLifecycle = async (event) => {
+  const arrReplayValidateSyntheticTimestamps = (event) => {
+    const expectedTimestamp = arrReplayScheduler.dateEpochMs + event.replayMs;
+    for (const entry of event.logLines) {
+      const parsedTimestamp = arrReplayNativeDate.parse(entry.line[1]);
+      if (!Number.isFinite(parsedTimestamp) || parsedTimestamp !== expectedTimestamp) {
+        throw new Error(
+          `ARR LogLine timestamp 与 replayEpoch/replayMs 不一致：` +
+          `${entry.line[1]} != ${new arrReplayNativeDate(expectedTimestamp).toISOString()}`,
+        );
+      }
+    }
+  };
+
+  const arrReplayProcessLifecycle = async (
+      event,
+      fixtureSha256,
+      ingressGeneration,
+      previousIngressActive) => {
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
     if (!arrReplayExactKeys(event, [
       'kind', 'replayEpoch', 'sequence', 'replayMs', 'playbackRate',
-      'playerIndex', 'localPlayerId', 'localPlayerName', 'action', 'reason', 'logLines',
+      'playerIndex', 'localPlayerId', 'localPlayerName', 'action', 'reason',
+      'logLines', 'stateUpdates',
     ]))
       throw new Error('ARR lifecycle DTO 字段不精确');
     if (!arrReplaySafeInteger(event.replayEpoch, 1, Number.MAX_SAFE_INTEGER) ||
         event.replayEpoch <= arrReplayState.epochHighWater || event.sequence !== 0 ||
-        !arrReplaySafeInteger(event.replayMs, 0, 1264261) ||
+        !arrReplaySafeInteger(event.replayMs, 0, arrReplayMaximumMs) ||
         typeof event.playbackRate !== 'number' || !Number.isFinite(event.playbackRate) ||
         event.playbackRate <= 0 || event.playbackRate > 16 ||
         !Number.isInteger(event.playerIndex) || !/^0x[0-9A-F]{8}$/u.test(event.localPlayerId) ||
         typeof event.localPlayerName !== 'string' || event.localPlayerName.length === 0 ||
         event.localPlayerName.length > 64 || /[|\r\n\0]/u.test(event.localPlayerName) ||
         typeof event.reason !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/u.test(event.reason) ||
-        !Array.isArray(event.logLines) || event.logLines.length !== 0)
+        !Array.isArray(event.logLines) || event.logLines.length !== 0 ||
+        !Array.isArray(event.stateUpdates) || event.stateUpdates.length !== 0)
       throw new Error('ARR lifecycle 顺序或字段非法');
 
     const previousState = arrReplayState;
+    arrReplayCancelVfxExpiryTimer();
+    arrReplayVfxRetainedMode = true;
+    const fixtureProfile = arrReplayFindFixtureProfile(
+      fixtureSha256,
+      event.playerIndex,
+      event.localPlayerId,
+      event.localPlayerName,
+    );
     // Consume every syntactically valid newer epoch before environment, action,
     // rate, identity or cleanup gates.  A rejected epoch cannot be replayed
     // later with corrected contents after reconnect or fail-closed cleanup.
@@ -1678,98 +4149,194 @@
       lastReset: `${event.action}:${event.reason}`,
       wallAnchorMs: arrReplayWallNow(),
       lastExposedReplayMs: event.replayMs,
+      profileId: fixtureProfile?.id,
+      fixtureSha256,
       playerIndex: event.playerIndex,
       localPlayerId: event.localPlayerId,
       localPlayerName: event.localPlayerName,
       partyReady: arrReplayPartyReady,
+      lastSegmentSequence: -1,
+      cutSegmentSequence: -1,
+      warmComplete: false,
+      nextPullResetIndex: 0,
     };
+    arrReplayResetScheduler(arrReplayState.generation, event.replayEpoch);
+    arrReplayResetVfxPublishGeneration(arrReplayState.generation);
+    arrReplayBlockExternalEffects(event.action === 'start' || event.action === 'seek');
+    arrReplayWarmVfx = event.action === 'start' || event.action === 'seek';
+    arrReplayWarmVfxScopes = new Map();
+    arrReplayVfxStableIds = new Map();
     if (liveSemanticState.active)
       throw new Error('ARR/live semantic 输入模式冲突');
     if (!['start', 'seek', 'reset', 'stop', 'pause', 'unload', 'overflow'].includes(event.action))
       throw new Error(`ARR lifecycle action 非法：${event.action}`);
+    if ((event.action === 'start' || event.action === 'seek') && event.replayMs !== 0)
+      throw new Error('ARR start/seek lifecycle 必须从 replayMs=0 开始');
+    if (event.action === 'seek' && previousIngressActive !== true)
+      throw new Error('ARR seek lifecycle 要求上一epoch仍为active');
     if (event.playbackRate !== 1.0)
       throw new Error('ARR playbackRate 只允许固定1.0x');
-    if (event.playerIndex !== 0)
-      throw new Error('ARR playerIndex 只允许固定0');
+    if (fixtureProfile === undefined)
+      throw new Error('ARR lifecycle 不匹配任一固定 fixture 身份');
+    if (event.replayMs > fixtureProfile.maximumReplayMs)
+      throw new Error(`ARR lifecycle 超过 ${fixtureProfile.id} fixture 最大时间`);
+    if (previousState.profileId !== undefined &&
+        fixtureProfile.id !== previousState.profileId)
+      throw new Error('ARR fixture profile 在epoch之间发生变化');
     if (previousState.localPlayerId !== undefined &&
         (event.localPlayerId !== previousState.localPlayerId ||
          event.localPlayerName !== previousState.localPlayerName))
       throw new Error('ARR 本地玩家身份在epoch之间发生变化');
-    const resumeCombatants = event.action === 'start' &&
-      previousState.lastReset?.startsWith('pause:') === true &&
-      arrReplayCombatantsPreservedForResume &&
-      arrReplayCombatantsGeneration === previousState.generation;
-    if (resumeCombatants) {
-      arrReplayCombatantsGeneration = arrReplayState.generation;
-      arrReplayCombatantsPreservedForResume = false;
-    } else if (event.action === 'pause' && previousState.active &&
+    const startsStrictContext =
+      event.action === 'start' || event.action === 'seek';
+    const pausesStrictContext = event.action === 'pause';
+    if (startsStrictContext) {
+      arrLogReplayCancelForStrictReplay();
+      arrReplayPinStrictIdentity();
+    }
+    if (pausesStrictContext && previousState.active &&
         arrReplayCombatantsGeneration === previousState.generation) {
       arrReplayCombatantsGeneration = arrReplayState.generation;
       arrReplayCombatantsPreservedForResume = true;
     } else {
       arrReplayClearCombatants();
     }
-    const resumeParty = event.action === 'start' &&
-      arrReplayPartyPreservedForResume && arrReplayPartyReady;
-    if (event.action === 'start' || event.action === 'seek') {
-      if (resumeParty) {
-        arrReplayPartyPreservedForResume = false;
-        arrReplayPartyMode = true;
-        arrReplayState.partyReady = true;
-      } else {
-        arrReplayResetSyntheticParty();
-      }
-    } else if (event.action === 'pause') {
+    if (startsStrictContext) {
+      arrReplayPrepareSyntheticParty();
+    } else if (pausesStrictContext) {
       arrReplayPartyPreservedForResume = arrReplayPartyReady;
-    } else {
-      arrReplayRestoreLiveParty();
     }
     // The DLL has already completed verified-zero cleanup before publishing this
     // lifecycle event.  false stops delayed/suppressed triggers; true rebuilds
     // raidboss data via getDataObject()/Reset before the first new LogLine.
     arrReplayDispatchCombatState(false);
-    await endVfxSession();
-    if (event.action === 'start' || event.action === 'seek') {
+    const vfxCleanup = await arrReplayAcquireVfxCleanup();
+    if (vfxCleanup?.physicalCleanupConfirmed !== true)
+      throw new Error('ARR lifecycle VFX cleanup 未确认 physical zero');
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    if (startsStrictContext) {
+      const zoneEntered = await arrReplayEnterStrictZone({
+        isCurrent: () => arrReplayIngressIsCurrent(ingressGeneration),
+      });
+      if (!zoneEntered ||
+          !arrReplayIngressIsCurrent(ingressGeneration))
+        return false;
+      arrReplayPublishSyntheticParty();
+      arrReplayPublishSyntheticPlayer();
       arrReplayDispatchCombatState(true);
       arrReplayState.active = true;
+    } else if (!pausesStrictContext) {
+      arrReplayRestoreLiveParty();
+      await arrReplayRestoreStrictZone();
+      if (!arrReplayIngressIsCurrent(ingressGeneration))
+        return false;
+      const playerRestored = await arrReplayRestoreLivePlayer({
+        isCurrent: () => arrReplayIngressIsCurrent(ingressGeneration),
+      });
+      if (!playerRestored ||
+          !arrReplayIngressIsCurrent(ingressGeneration))
+        return false;
+      arrReplayUnpinStrictIdentity();
     }
+    if (!startsStrictContext) {
+      arrReplayVfxRetainedMode = false;
+      arrReplayWarmVfxScopes = new Map();
+    }
+    return true;
   };
 
-  const arrReplayProcessTransportReset = async (event) => {
-    if (!arrReplayExactKeys(event, ['kind', 'action', 'reason', 'logLines']) ||
+  const arrReplayProcessTransportReset = async (
+      event,
+      fixtureSha256,
+      ingressGeneration) => {
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    if (!arrReplayExactKeys(event, [
+      'kind', 'action', 'reason', 'logLines', 'stateUpdates',
+    ]) ||
         !['disconnect', 'gap', 'cleanup-failed', 'overflow'].includes(event.action) ||
         typeof event.reason !== 'string' || event.reason.length > 512 ||
-        !Array.isArray(event.logLines) || event.logLines.length !== 0)
+        !Array.isArray(event.logLines) || event.logLines.length !== 0 ||
+        !Array.isArray(event.stateUpdates) || event.stateUpdates.length !== 0)
       throw new Error('ARR transport-reset DTO 非法');
-    await arrReplayFailClosed(`${event.action}:${event.reason}`);
+    if (fixtureSha256 !== null &&
+        arrReplayState.fixtureSha256 !== undefined &&
+        fixtureSha256 !== arrReplayState.fixtureSha256)
+      throw new Error('ARR transport-reset fixture 身份变化');
+    const cleanup = await arrReplayFailClosed(
+      `${event.action}:${event.reason}`,
+      ingressGeneration,
+    );
+    if (arrReplayCleanupFailed(cleanup)) {
+      const error = new Error(`ARR transport-reset cleanup 未确认：${cleanup.error}`);
+      error.arrReplayCleanupResult = cleanup;
+      throw error;
+    }
+    if (cleanup.stale)
+      return false;
+    return true;
   };
 
-  const arrReplayProcessSemantic = (event) => {
+  const arrReplayProcessSemantic = async (
+      event,
+      fixtureSha256,
+      ingressGeneration) => {
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
     if (!arrReplayExactKeys(event, [
-      'kind', 'replayEpoch', 'sequence', 'replayMs', 'semantic', 'logLines',
+      'kind', 'replayEpoch', 'sequence', 'segmentSequence', 'replayMs',
+      'semantic', 'logLines', 'stateUpdates',
     ]))
       throw new Error('ARR semantic DTO 字段不精确');
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
     if (!arrReplayState.active || event.replayEpoch !== arrReplayState.replayEpoch ||
+        fixtureSha256 !== arrReplayState.fixtureSha256 ||
+        fixtureProfile === undefined ||
         !arrReplaySafeInteger(event.sequence, 1, Number.MAX_SAFE_INTEGER) ||
         event.sequence !== arrReplayState.sequence + 1 ||
-        !arrReplaySafeInteger(event.replayMs, arrReplayState.replayMs, 1264261) ||
+        !arrReplaySafeInteger(
+          event.segmentSequence,
+          0,
+          fixtureProfile?.maximumSegmentSequence ?? -1,
+        ) ||
+        event.segmentSequence <= arrReplayState.lastSegmentSequence ||
+        arrReplayState.warmComplete &&
+          event.segmentSequence <= arrReplayState.cutSegmentSequence ||
+        !arrReplaySafeInteger(
+          event.replayMs,
+          arrReplayState.replayMs,
+          fixtureProfile?.maximumReplayMs ?? -1,
+        ) ||
         arrReplayAllowedTypesBySemantic[event.semantic] === undefined ||
-        !Array.isArray(event.logLines) || event.logLines.length > 128)
+        !Array.isArray(event.logLines) || event.logLines.length > 128 ||
+        !Array.isArray(event.stateUpdates) || event.stateUpdates.length > 1)
       throw new Error('ARR semantic 顺序、时间或白名单门禁失败');
+    const pendingPullReset = arrReplayNextPullReset();
+    if (pendingPullReset !== undefined && event.replayMs > pendingPullReset.replayMs)
+      throw new Error('ARR semantic 越过固定chapter pull-reset边界');
     if (event.semantic === 'ActorControlTarget' && event.logLines.length !== 1)
       throw new Error('ARR ActorControlTarget 必须含唯一标准261投影');
     if (event.semantic === 'ContentDirectorActor' && event.logLines.length !== 1)
       throw new Error('ARR ContentDirectorActor 必须含唯一标准261投影');
     for (const line of event.logLines)
       arrReplayValidateLogLine(line, event.semantic);
-    const combatantUpdates = arrReplayPrepareCombatantUpdates(event.logLines);
+    arrReplayValidateSyntheticTimestamps(event);
+    await arrReplayAdvanceSchedulerBeforeSource(event.replayMs);
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    const combatantUpdates = arrReplayPrepareSemanticCombatantUpdates(event);
     if (event.semantic === 'PlayerSpawn')
       arrReplayAcceptPlayerSpawn(event);
-    else if (!arrReplayPartyReady && event.replayMs > 202)
-      throw new Error('ARR 固定8人party未在202ms门禁前构建完成');
+    else if (arrReplayPartySpawnCursor !== 8 &&
+        event.replayMs > fixtureProfile.partyReadyByMs)
+      throw new Error(
+        `ARR 固定8人PlayerSpawn未在 ${fixtureProfile.partyReadyByMs}ms 门禁前验证完成`,
+      );
     arrReplayApplyCombatantUpdates(combatantUpdates);
 
     arrReplayState.sequence = event.sequence;
+    arrReplayState.lastSegmentSequence = event.segmentSequence;
     arrReplayState.replayMs = event.replayMs;
     arrReplayState.lastExposedReplayMs = Math.max(
       arrReplayState.lastExposedReplayMs,
@@ -1778,30 +4345,599 @@
     arrReplayState.wallAnchorMs = arrReplayWallNow();
     if (typeof window.dispatchOverlayEvent !== 'function')
       throw new Error('dispatchOverlayEvent 不可用');
-    for (const logLine of event.logLines) {
-      window.dispatchOverlayEvent({
-        type: 'LogLine',
-        line: [...logLine.line],
-        rawLine: logLine.rawLine,
+    await arrReplayRunControlled(event.replayMs, () => {
+      for (const logLine of event.logLines) {
+        window.dispatchOverlayEvent({
+          type: 'LogLine',
+          line: [...logLine.line],
+          rawLine: logLine.rawLine,
+        });
+      }
+    });
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    arrReplayArmSchedulerWake();
+    return true;
+  };
+
+  const arrReplayProcessPullReset = async (
+      event,
+      fixtureSha256,
+      ingressGeneration) => {
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    if (!arrReplayExactKeys(event, [
+      'kind', 'replayEpoch', 'sequence', 'replayMs', 'chapterIndex',
+      'chapterType', 'relativeOffset', 'reason', 'logLines', 'stateUpdates',
+    ]))
+      throw new Error('ARR pull-reset DTO 字段不精确');
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
+    const expected = arrReplayNextPullReset();
+    if (!arrReplayState.active ||
+        event.replayEpoch !== arrReplayState.replayEpoch ||
+        fixtureSha256 !== arrReplayState.fixtureSha256 ||
+        fixtureProfile === undefined || expected === undefined ||
+        !arrReplaySafeInteger(event.sequence, 1, Number.MAX_SAFE_INTEGER) ||
+        event.sequence !== arrReplayState.sequence + 1 ||
+        event.replayMs !== expected.replayMs ||
+        event.replayMs < arrReplayState.replayMs ||
+        event.chapterIndex !== expected.chapterIndex ||
+        event.chapterType !== expected.chapterType ||
+        event.relativeOffset !== expected.relativeOffset ||
+        event.reason !== expected.reason ||
+        !Array.isArray(event.logLines) || event.logLines.length !== 0 ||
+        !Array.isArray(event.stateUpdates) || event.stateUpdates.length !== 0)
+      throw new Error('ARR pull-reset epoch、顺序或固定chapter门禁失败');
+    if (arrReplayPartySpawnCursor !== 8 ||
+        !arrReplayPartyReady || arrReplayState.partyReady !== true)
+      throw new Error('ARR pull-reset 前固定8人PlayerSpawn尚未验证完成');
+
+    await arrReplayAdvanceSchedulerBeforeSource(event.replayMs);
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+
+    arrReplayCancelVfxExpiryTimer();
+    arrReplayState = {
+      ...arrReplayState,
+      sequence: event.sequence,
+      replayMs: event.replayMs,
+      lastExposedReplayMs: Math.max(
+        arrReplayState.lastExposedReplayMs,
+        event.replayMs,
+      ),
+      wallAnchorMs: arrReplayWallNow(),
+      generation: arrReplayState.generation + 1,
+      lastReset: `pull-reset:${event.reason}`,
+      nextPullResetIndex: arrReplayState.nextPullResetIndex + 1,
+    };
+    arrReplayResetScheduler(arrReplayState.generation, arrReplayState.replayEpoch);
+    arrReplayResetVfxPublishGeneration(arrReplayState.generation);
+    arrReplayPreserveCombatantsForPullReset();
+    arrReplayWarmVfxScopes = new Map();
+    arrReplayVfxStableIds = new Map();
+    arrReplayDispatchCombatState(false);
+    const vfxCleanup = await arrReplayAcquireVfxCleanup();
+    if (vfxCleanup?.physicalCleanupConfirmed !== true)
+      throw new Error('ARR pull-reset VFX cleanup 未确认 physical zero');
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    arrReplayDispatchCombatState(true);
+    arrReplayArmSchedulerWake();
+    return true;
+  };
+
+  const arrReplayProcessWarmComplete = async (
+      event,
+      fixtureSha256,
+      ingressGeneration) => {
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    if (!arrReplayExactKeys(event, [
+      'kind', 'replayEpoch', 'sequence', 'replayMs', 'cutSegmentSequence',
+      'logLines', 'stateUpdates',
+    ]))
+      throw new Error('ARR warm-complete DTO 字段不精确');
+    const fixtureProfile = arrReplayCurrentFixtureProfile();
+    const pendingPullReset = arrReplayNextPullReset();
+    if (!arrReplayState.active || !arrReplayWarmVfx || arrReplayState.warmComplete ||
+        event.replayEpoch !== arrReplayState.replayEpoch ||
+        fixtureSha256 !== arrReplayState.fixtureSha256 ||
+        fixtureProfile === undefined ||
+        !arrReplaySafeInteger(event.sequence, 1, Number.MAX_SAFE_INTEGER) ||
+        event.sequence !== arrReplayState.sequence + 1 ||
+        !arrReplaySafeInteger(
+          event.replayMs,
+          arrReplayState.replayMs,
+          fixtureProfile?.maximumReplayMs ?? -1,
+        ) ||
+        !arrReplaySafeInteger(
+          event.cutSegmentSequence,
+          0,
+          fixtureProfile?.maximumSegmentSequence ?? -1,
+        ) ||
+        event.cutSegmentSequence < arrReplayState.lastSegmentSequence ||
+        event.replayMs > fixtureProfile.partyReadyByMs &&
+          (!arrReplayPartyReady || arrReplayState.partyReady !== true ||
+           arrReplayPartySpawnCursor !== 8) ||
+        pendingPullReset !== undefined &&
+          event.replayMs > pendingPullReset.replayMs ||
+        !Array.isArray(event.logLines) || event.logLines.length !== 0 ||
+        !Array.isArray(event.stateUpdates) || event.stateUpdates.length !== 0)
+      throw new Error('ARR warm-complete epoch、顺序、party、cut或时间门禁失败');
+
+    await arrReplayCompleteSchedulerWarm(event.replayMs);
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    arrReplayState.sequence = event.sequence;
+    arrReplayState.replayMs = event.replayMs;
+    arrReplayState.lastExposedReplayMs = Math.max(
+      arrReplayState.lastExposedReplayMs,
+      event.replayMs,
+    );
+    arrReplayState.wallAnchorMs = arrReplayWallNow();
+    arrReplayState.cutSegmentSequence = event.cutSegmentSequence;
+    arrReplayState.warmComplete = true;
+    arrReplayWarmVfx = false;
+    await arrReplayQueueWholeScenePublish(arrReplayState.generation);
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    arrReplayArmSchedulerWake();
+    return true;
+  };
+
+  const arrReplayBrowserLeaseKeys = Object.freeze([
+    'type',
+    'source',
+    'protocolVersion',
+    'projectionVersion',
+    'fixtureSha256',
+    'event',
+    'deliveryId',
+    'pageSessionId',
+    'pageSessionOrdinal',
+    'bridgeInstanceId',
+  ]);
+  const arrReplaySupportedReceiptKinds = Object.freeze([
+    'lifecycle',
+    'event',
+    'warm-batch',
+    'warm-complete',
+    'pull-reset',
+    'transport-reset',
+  ]);
+  const arrReplayValidLowerHexId = (value) =>
+    typeof value === 'string' && /^[0-9a-f]{32}$/u.test(value);
+
+  const arrReplayTrustedEnvelopeHeader = (envelope) =>
+    arrReplayExactKeys(envelope, arrReplayBrowserLeaseKeys) &&
+    envelope.type === 'StringArrReplayEvent' &&
+    envelope.source === 'string-arr-replay-test' &&
+    envelope.protocolVersion === 2 &&
+    envelope.projectionVersion === arrReplayStateProjectionVersion &&
+    (envelope.fixtureSha256 === null ||
+      /^[0-9A-F]{64}$/u.test(envelope.fixtureSha256)) &&
+    arrReplaySafeInteger(envelope.deliveryId, 1, Number.MAX_SAFE_INTEGER) &&
+    arrReplayValidLowerHexId(envelope.pageSessionId) &&
+    arrReplaySafeInteger(envelope.pageSessionOrdinal, 1, Number.MAX_SAFE_INTEGER) &&
+    arrReplayValidLowerHexId(envelope.bridgeInstanceId);
+
+  const arrReplayLifecycleIngressCandidate = (event) =>
+    arrReplayExactKeys(event, [
+      'kind', 'replayEpoch', 'sequence', 'replayMs', 'playbackRate',
+      'playerIndex', 'localPlayerId', 'localPlayerName', 'action', 'reason',
+      'logLines', 'stateUpdates',
+    ]) &&
+    event.kind === 'lifecycle' &&
+    arrReplaySafeInteger(event.replayEpoch, 1, Number.MAX_SAFE_INTEGER) &&
+    event.sequence === 0 &&
+    ['start', 'seek', 'reset', 'stop', 'pause', 'unload', 'overflow'].includes(event.action);
+
+  const arrReplayTransportResetIngressCandidate = (event) =>
+    arrReplayExactKeys(event, [
+      'kind', 'action', 'reason', 'logLines', 'stateUpdates',
+    ]) &&
+    event.kind === 'transport-reset';
+
+  const arrReplayEnvelopeIsSourceZeroLifecycle = (envelope) => {
+    const event = envelope?.event;
+    return event?.kind === 'lifecycle' &&
+      (event.action === 'start' || event.action === 'seek') &&
+      event.sequence === 0 &&
+      event.replayMs === 0;
+  };
+
+  const arrReplayReceiptBoundary = (envelope) => {
+    const event = envelope?.event;
+    const eventKind = event?.kind;
+    if (!arrReplaySupportedReceiptKinds.includes(eventKind))
+      throw new Error('ARR receipt event kind 非法');
+    if (eventKind === 'transport-reset') {
+      return Object.freeze({
+        eventKind,
+        replayEpoch: 0,
+        lastSequence: 0,
+        lastSegmentSequence: 0,
       });
+    }
+    if (!arrReplaySafeInteger(event.replayEpoch, 1, Number.MAX_SAFE_INTEGER))
+      throw new Error('ARR receipt replayEpoch 非法');
+    if (eventKind === 'lifecycle') {
+      if (!arrReplaySafeInteger(event.sequence, 0, Number.MAX_SAFE_INTEGER))
+        throw new Error('ARR lifecycle receipt sequence 非法');
+      return Object.freeze({
+        eventKind,
+        replayEpoch: event.replayEpoch,
+        lastSequence: event.sequence,
+        lastSegmentSequence: 0,
+      });
+    }
+    if (eventKind === 'event') {
+      if (!arrReplaySafeInteger(event.sequence, 1, Number.MAX_SAFE_INTEGER) ||
+          !arrReplaySafeInteger(event.segmentSequence, 0, Number.MAX_SAFE_INTEGER))
+        throw new Error('ARR event receipt 边界非法');
+      return Object.freeze({
+        eventKind,
+        replayEpoch: event.replayEpoch,
+        lastSequence: event.sequence,
+        lastSegmentSequence: event.segmentSequence,
+      });
+    }
+    if (eventKind === 'warm-batch') {
+      const last = Array.isArray(event.events)
+        ? event.events[event.events.length - 1]
+        : undefined;
+      if (!arrReplaySafeInteger(last?.sequence, 1, Number.MAX_SAFE_INTEGER) ||
+          !arrReplaySafeInteger(last?.segmentSequence, 0, Number.MAX_SAFE_INTEGER))
+        throw new Error('ARR warm-batch receipt 边界非法');
+      return Object.freeze({
+        eventKind,
+        replayEpoch: event.replayEpoch,
+        lastSequence: last.sequence,
+        lastSegmentSequence: last.segmentSequence,
+      });
+    }
+    if (eventKind === 'warm-complete') {
+      if (!arrReplaySafeInteger(event.sequence, 1, Number.MAX_SAFE_INTEGER) ||
+          !arrReplaySafeInteger(event.cutSegmentSequence, 0, Number.MAX_SAFE_INTEGER))
+        throw new Error('ARR warm-complete receipt 边界非法');
+      return Object.freeze({
+        eventKind,
+        replayEpoch: event.replayEpoch,
+        lastSequence: event.sequence,
+        lastSegmentSequence: event.cutSegmentSequence,
+      });
+    }
+    if (!arrReplaySafeInteger(event.sequence, 1, Number.MAX_SAFE_INTEGER))
+      throw new Error('ARR pull-reset receipt sequence 非法');
+    return Object.freeze({
+      eventKind,
+      replayEpoch: event.replayEpoch,
+      lastSequence: event.sequence,
+      // A pull reset advances the runtime generation but does not consume a
+      // new segment. Freeze the pre-reset boundary before processing begins.
+      lastSegmentSequence: Math.max(0, arrReplayState.lastSegmentSequence),
+    });
+  };
+
+  const arrReplayPrepareDeliveryItem = (envelope) => {
+    const cloned = arrReplayCloneJsonWithSize(envelope);
+    if (cloned.bytes > arrReplayMaximumEnvelopeUtf8Bytes)
+      throw new Error('ARR delivery 超过浏览器完整 envelope 上限');
+    if (!arrReplayTrustedEnvelopeHeader(cloned.value))
+      throw new Error('ARR delivery envelope 门禁失败');
+    return {
+      envelope: cloned.value,
+      utf8Bytes: cloned.bytes,
+      boundary: arrReplayReceiptBoundary(cloned.value),
+      deliveryId: cloned.value.deliveryId,
+      pageSessionId: cloned.value.pageSessionId,
+      pageSessionOrdinal: cloned.value.pageSessionOrdinal,
+      bridgeInstanceId: cloned.value.bridgeInstanceId,
+      ingressGeneration: arrReplayIngressGeneration,
+      previousIngressActive: undefined,
+      pending: false,
+      receiptAttempted: false,
+    };
+  };
+
+  const arrReplayTrackPendingDelivery = (item) => {
+    if (arrReplayPendingDeliveryCount >= arrReplayQueueLimit ||
+        arrReplayQueuedUtf8Bytes + item.utf8Bytes > arrReplayQueueMaximumUtf8Bytes)
+      throw new Error('ARR 浏览器 delivery 队列达到数量或字节硬上限');
+    item.pending = true;
+    ++arrReplayPendingDeliveryCount;
+    arrReplayQueuedUtf8Bytes += item.utf8Bytes;
+  };
+
+  const arrReplayReleaseDelivery = (item) => {
+    if (item?.pending !== true)
+      return;
+    item.pending = false;
+    arrReplayPendingDeliveryCount = Math.max(0, arrReplayPendingDeliveryCount - 1);
+    arrReplayQueuedUtf8Bytes = Math.max(0, arrReplayQueuedUtf8Bytes - item.utf8Bytes);
+  };
+
+  const arrReplayAckResponseIsExact = (response, item, accepted, stale) => {
+    const expectedKeys = stale
+      ? ['ok', 'projectionVersion', 'deliveryId', 'accepted', 'stale']
+      : ['ok', 'projectionVersion', 'deliveryId', 'accepted'];
+    return arrReplayExactKeys(response, expectedKeys) &&
+      response.ok === true &&
+      response.projectionVersion === arrReplayStateProjectionVersion &&
+      response.deliveryId === item.deliveryId &&
+      response.accepted === accepted &&
+      (!stale || response.stale === true);
+  };
+
+  const arrReplayLockBrowserPage = (
+      reason,
+      { discardDeliveriesLocally = false } = {}) => {
+    if (arrReplayBrowserSession.locked)
+      return;
+    arrReplayBrowserSession.locked = true;
+    arrReplayBrowserSession.status = 'locked';
+    arrReplayBrowserSession.lastError = `${reason}`.slice(0, 256);
+    ++arrReplayBrowserSession.handshakeGeneration;
+    if (arrReplayBrowserSession.handshakeTimer !== undefined)
+      arrReplayNativeClearTimeout(arrReplayBrowserSession.handshakeTimer);
+    arrReplayBrowserSession.handshakeTimer = undefined;
+    arrReplayBrowserSession.handshakeInFlight = false;
+    arrReplayBrowserSession.active = undefined;
+    arrReplayBrowserSession.candidate = undefined;
+    const candidateDelivery = arrReplayBrowserSession.candidateDelivery;
+    arrReplayBrowserSession.candidateDelivery = undefined;
+    if (candidateDelivery !== undefined) {
+      if (discardDeliveriesLocally) {
+        candidateDelivery.receiptAttempted = true;
+        arrReplayReleaseDelivery(candidateDelivery);
+      } else {
+        void arrReplaySendReceipt(candidateDelivery, false, 'stale-generation');
+      }
+    }
+    const postAckDelivery = arrReplayBrowserSession.postAckDelivery;
+    arrReplayBrowserSession.postAckDelivery = undefined;
+    if (postAckDelivery !== undefined) {
+      if (discardDeliveriesLocally) {
+        postAckDelivery.receiptAttempted = true;
+        arrReplayReleaseDelivery(postAckDelivery);
+      } else {
+        void arrReplaySendReceipt(postAckDelivery, false, 'stale-generation');
+      }
     }
   };
 
-  const arrReplayProcessEnvelope = async (envelope) => {
-    if (!arrReplayExactKeys(envelope, ['type', 'source', 'protocolVersion', 'event']) ||
-        envelope.type !== 'StringArrReplayEvent' ||
-        envelope.source !== 'string-arr-replay-test' ||
-        envelope.protocolVersion !== 1)
+  const arrReplayFailClosedAndLock = async (
+      reason,
+      expectedIngressGeneration,
+      lockReason = reason) => {
+    const handshakeGeneration = arrReplayBrowserSession.handshakeGeneration;
+    const result = await arrReplayFailClosed(reason, expectedIngressGeneration);
+    if (handshakeGeneration === arrReplayBrowserSession.handshakeGeneration &&
+        arrReplayCleanupFailed(result))
+      arrReplayLockBrowserPage(`cleanup:${lockReason}`);
+    return result;
+  };
+
+  const arrReplayBuildReceipt = (item, accepted, reason) => ({
+    call: 'stringArrReplayTest',
+    action: 'ack',
+    projectionVersion: arrReplayStateProjectionVersion,
+    deliveryId: item.deliveryId,
+    accepted,
+    reason,
+    replayEpoch: item.boundary.replayEpoch,
+    runtimeGeneration: Math.max(0, arrReplayState.generation),
+    eventKind: item.boundary.eventKind,
+    lastSequence: item.boundary.lastSequence,
+    lastSegmentSequence: item.boundary.lastSegmentSequence,
+    queueDepth: Math.max(0, arrReplayPendingDeliveryCount - (item.pending ? 1 : 0)),
+    schedulerFaulted: arrReplayScheduler.fault !== undefined,
+    pageSessionId: item.pageSessionId,
+    pageSessionOrdinal: item.pageSessionOrdinal,
+    bridgeInstanceId: item.bridgeInstanceId,
+  });
+
+  const arrReplaySendReceipt = async (item, accepted, reason) => {
+    if (item.receiptAttempted)
+      return false;
+    item.receiptAttempted = true;
+    item.receiptReason = reason;
+    const stale = reason === 'stale-generation';
+    // Transport-reset and processing-failed intentionally advance ingress
+    // before acknowledging. Freeze the generation that owns this ACK itself,
+    // rather than reusing the delivery's pre-processing generation.
+    const receiptAuthorityGeneration = arrReplayIngressGeneration;
+    let acknowledged = false;
+    if (stale)
+      arrReplayReleaseDelivery(item);
+    const request = arrReplayBuildReceipt(item, accepted, reason);
+    try {
+      const response = await arrReplayNativeCallWithTimeout(request);
+      if (!arrReplayAckResponseIsExact(response, item, accepted, stale))
+        throw new Error('ARR delivery ACK 响应字段或身份不匹配');
+      if (!stale &&
+          receiptAuthorityGeneration !== arrReplayIngressGeneration)
+        return false;
+      if (accepted &&
+          arrReplayBrowserSession.active?.pageSessionId === item.pageSessionId &&
+          arrReplayBrowserSession.active?.pageSessionOrdinal === item.pageSessionOrdinal &&
+          arrReplayBrowserSession.active?.bridgeInstanceId === item.bridgeInstanceId &&
+          arrReplayEnvelopeIsSourceZeroLifecycle(item.envelope)) {
+        arrReplayBrowserSession.active.requiresSourceZeroLifecycle = false;
+      }
+      acknowledged = true;
+      return true;
+    } catch (error) {
+      if (!stale) {
+        if (receiptAuthorityGeneration !== arrReplayIngressGeneration) {
+          // A newer managed generation canceled this receipt while its ACK was
+          // in flight. Never let the obsolete response path close the new one.
+          return false;
+        }
+        arrReplayLockBrowserPage(`receipt:${error}`);
+        if (accepted) {
+          const cleanup = await arrReplayFailClosed(
+            `browser-receipt:${error}`,
+            receiptAuthorityGeneration,
+          );
+          if (arrReplayCleanupFailed(cleanup))
+            console.warn('String ARR accepted receipt 失败后的清理未确认', cleanup.error);
+        }
+      }
+      return false;
+    } finally {
+      if (!stale)
+        arrReplayReleaseDelivery(item);
+      if (acknowledged && accepted) {
+        const buffered = arrReplayBrowserSession.postAckDelivery;
+        arrReplayBrowserSession.postAckDelivery = undefined;
+        if (buffered !== undefined) {
+          try {
+            if (!arrReplayAdmitDelivery(buffered))
+              arrReplaySendStaleWithoutWaiting(buffered);
+          } catch (error) {
+            void arrReplayRejectCurrentDelivery(buffered, error);
+          }
+        }
+      }
+    }
+  };
+
+  const arrReplaySendStaleWithoutWaiting = (item) => {
+    const receipt = arrReplaySendReceipt(item, false, 'stale-generation');
+    void arrReplayNativePromiseThen.call(receipt, undefined, () => {});
+  };
+
+  const arrReplayDropQueuedDeliveriesAsStale = () => {
+    const dropped = arrReplayQueue.slice(arrReplayQueueHead);
+    arrReplayQueue = [];
+    arrReplayQueueHead = 0;
+    for (const item of dropped)
+      arrReplaySendStaleWithoutWaiting(item);
+  };
+
+  const arrReplayDropDeliveriesLocally = () => {
+    const dropped = arrReplayQueue.slice(arrReplayQueueHead);
+    arrReplayQueue = [];
+    arrReplayQueueHead = 0;
+    if (arrReplayProcessingItem !== undefined)
+      dropped.push(arrReplayProcessingItem);
+    for (const item of dropped) {
+      item.receiptAttempted = true;
+      arrReplayReleaseDelivery(item);
+    }
+  };
+
+  const arrReplayCancelInFlightForIngress = () => {
+    if (!arrReplayPumpRunning)
+      return;
+    arrReplayCancelVfxExpiryTimer();
+    arrReplayState = {
+      ...arrReplayState,
+      generation: arrReplayState.generation + 1,
+    };
+    arrReplayResetScheduler(arrReplayState.generation, arrReplayState.replayEpoch);
+    arrReplayResetVfxPublishGeneration(arrReplayState.generation);
+  };
+
+  const arrReplayPreemptIngress = () => {
+    ++arrReplayIngressGeneration;
+    arrReplayCancelInFlightForIngress();
+    arrReplayDropQueuedDeliveriesAsStale();
+  };
+
+  const arrReplayProcessWarmBatch = async (
+      event,
+      envelope,
+      fixtureSha256,
+      ingressGeneration) => {
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    if (!arrReplayExactKeys(event, [
+      'kind', 'replayEpoch', 'events', 'stateUpdates',
+    ]) ||
+        event.kind !== 'warm-batch' ||
+        !arrReplaySafeInteger(event.replayEpoch, 1, Number.MAX_SAFE_INTEGER) ||
+        !Array.isArray(event.events) ||
+        !Array.isArray(event.stateUpdates) || event.stateUpdates.length !== 0 ||
+        event.events.length < 1 ||
+        event.events.length > arrReplayWarmBatchMaximumEvents ||
+        arrReplayUtf8JsonBytes(envelope) > arrReplayWarmBatchMaximumUtf8Bytes ||
+        !arrReplayState.active || !arrReplayWarmVfx || arrReplayState.warmComplete)
+      throw new Error('ARR warm-batch 结构、大小或阶段门禁失败');
+    for (const semantic of event.events) {
+      if (!arrReplayExactKeys(semantic, [
+        'kind', 'replayEpoch', 'sequence', 'segmentSequence', 'replayMs',
+        'semantic', 'logLines', 'stateUpdates',
+      ]) ||
+          semantic.kind !== 'event' ||
+          semantic.replayEpoch !== event.replayEpoch)
+        throw new Error('ARR warm-batch nested DTO 或 epoch 不一致');
+    }
+    for (const semantic of event.events) {
+      if (!arrReplayIngressIsCurrent(ingressGeneration))
+        return false;
+      const processed = await arrReplayProcessSemantic(
+        semantic,
+        fixtureSha256,
+        ingressGeneration,
+      );
+      if (!processed)
+        return false;
+    }
+    return true;
+  };
+
+  const arrReplayProcessEnvelope = async (item) => {
+    const {
+      envelope,
+      ingressGeneration,
+      previousIngressActive,
+    } = item;
+    if (!arrReplayIngressIsCurrent(ingressGeneration))
+      return false;
+    if (!arrReplayTrustedEnvelopeHeader(envelope))
       throw new Error('ARR envelope 门禁失败');
     const event = envelope.event;
     if (event?.kind === 'lifecycle')
-      await arrReplayProcessLifecycle(event);
-    else if (event?.kind === 'transport-reset')
-      await arrReplayProcessTransportReset(event);
-    else if (event?.kind === 'event')
-      arrReplayProcessSemantic(event);
-    else
-      throw new Error('ARR event kind 非法');
+      return await arrReplayProcessLifecycle(
+        event,
+        envelope.fixtureSha256,
+        ingressGeneration,
+        previousIngressActive,
+      );
+    if (event?.kind === 'transport-reset')
+      return await arrReplayProcessTransportReset(
+        event,
+        envelope.fixtureSha256,
+        ingressGeneration,
+      );
+    if (event?.kind === 'event')
+      return await arrReplayProcessSemantic(
+        event,
+        envelope.fixtureSha256,
+        ingressGeneration,
+      );
+    if (event?.kind === 'pull-reset')
+      return await arrReplayProcessPullReset(
+        event,
+        envelope.fixtureSha256,
+        ingressGeneration,
+      );
+    if (event?.kind === 'warm-batch')
+      return await arrReplayProcessWarmBatch(
+        event,
+        envelope,
+        envelope.fixtureSha256,
+        ingressGeneration,
+      );
+    if (event?.kind === 'warm-complete')
+      return await arrReplayProcessWarmComplete(
+        event,
+        envelope.fixtureSha256,
+        ingressGeneration,
+      );
+    throw new Error('ARR event kind 非法');
   };
 
   const arrReplayPump = async () => {
@@ -1810,18 +4946,50 @@
     arrReplayPumpRunning = true;
     try {
       while (arrReplayQueueHead < arrReplayQueue.length) {
-        const envelope = arrReplayQueue[arrReplayQueueHead++];
-        await arrReplayProcessEnvelope(envelope);
-        if (arrReplayQueueHead >= 512 && arrReplayQueueHead * 2 >= arrReplayQueue.length) {
+        const item = arrReplayQueue[arrReplayQueueHead++];
+        arrReplayProcessingItem = item;
+        try {
+          if (!arrReplayIngressIsCurrent(item.ingressGeneration)) {
+            await arrReplaySendReceipt(item, false, 'stale-generation');
+            continue;
+          }
+          const processed = await arrReplayProcessEnvelope(item);
+          const transportReset = item.boundary.eventKind === 'transport-reset';
+          if (!processed ||
+              (!transportReset && !arrReplayIngressIsCurrent(item.ingressGeneration))) {
+            await arrReplaySendReceipt(item, false, 'stale-generation');
+            continue;
+          }
+          if (arrReplayScheduler.fault !== undefined)
+            throw arrReplayScheduler.fault;
+          if (arrReplayPendingDeliveryCount !== 1)
+            throw new Error('ARR managed single-flight delivery 边界被破坏');
+          await arrReplaySendReceipt(item, true, 'accepted');
+        } catch (error) {
+          if (!arrReplayIngressIsCurrent(item.ingressGeneration) &&
+              item.boundary.eventKind !== 'transport-reset') {
+            await arrReplaySendReceipt(item, false, 'stale-generation');
+            continue;
+          }
+          console.warn('String ARR 回放事件失败关闭', error);
+          const cleanup = error?.arrReplayCleanupResult ??
+            await arrReplayFailClosed(error, item.ingressGeneration);
+          const cleanupAuthorityGeneration = arrReplayIngressGeneration;
+          await arrReplaySendReceipt(item, false, 'processing-failed');
+          if (cleanupAuthorityGeneration === arrReplayIngressGeneration &&
+              arrReplayCleanupFailed(cleanup))
+            arrReplayLockBrowserPage(`processing-cleanup:${cleanup.error}`);
+        } finally {
+          if (arrReplayProcessingItem === item)
+            arrReplayProcessingItem = undefined;
+        }
+        if (arrReplayQueueHead >= 16 && arrReplayQueueHead * 2 >= arrReplayQueue.length) {
           arrReplayQueue = arrReplayQueue.slice(arrReplayQueueHead);
           arrReplayQueueHead = 0;
         }
       }
       arrReplayQueue = [];
       arrReplayQueueHead = 0;
-    } catch (error) {
-      console.warn('String ARR 回放事件失败关闭', error);
-      await arrReplayFailClosed(error);
     } finally {
       arrReplayPumpRunning = false;
       if (arrReplayQueueHead < arrReplayQueue.length)
@@ -1829,15 +4997,865 @@
     }
   };
 
-  const handleArrReplayEvent = (event) => {
-    if (arrReplayQueue.length - arrReplayQueueHead >= arrReplayQueueLimit) {
-      console.warn('String ARR 回放浏览器队列达到硬上限，失败关闭');
-      void arrReplayFailClosed('browser-queue-overflow');
+  const arrReplayHasDeliveryForLease = (lease) => {
+    const sameLease = (item) =>
+      item?.pageSessionId === lease.pageSessionId &&
+      item?.pageSessionOrdinal === lease.pageSessionOrdinal &&
+      item?.bridgeInstanceId === lease.bridgeInstanceId &&
+      item?.pending === true;
+    if (sameLease(arrReplayProcessingItem))
+      return true;
+    if (sameLease(arrReplayBrowserSession.candidateDelivery))
+      return true;
+    if (sameLease(arrReplayBrowserSession.postAckDelivery))
+      return true;
+    return arrReplayQueue.slice(arrReplayQueueHead).some(sameLease);
+  };
+
+  const arrReplayAdmitDelivery = (item) => {
+    let previousIngressActive;
+    const event = item.envelope.event;
+    const active = arrReplayBrowserSession.active;
+    if (active?.requiresSourceZeroLifecycle === true &&
+        !arrReplayEnvelopeIsSourceZeroLifecycle(item.envelope)) {
+      throw new Error('ARR 新浏览器页面会话必须由source-zero start/seek重建');
+    }
+    if (arrReplayLifecycleIngressCandidate(event)) {
+      if (event.replayEpoch < arrReplayIngressEpochHighWater)
+        return false;
+      if (event.replayEpoch > arrReplayIngressEpochHighWater) {
+        previousIngressActive = arrReplayIngressActive;
+        arrReplayIngressEpochHighWater = event.replayEpoch;
+        arrReplayIngressActive =
+          event.action === 'start' || event.action === 'seek';
+        arrReplayPreemptIngress();
+      }
+    } else if (arrReplayTransportResetIngressCandidate(event)) {
+      arrReplayIngressActive = false;
+      arrReplayPreemptIngress();
+    } else if (arrReplaySafeInteger(event?.replayEpoch, 1, Number.MAX_SAFE_INTEGER) &&
+        event.replayEpoch < arrReplayIngressEpochHighWater) {
+      return false;
+    }
+
+    item.ingressGeneration = arrReplayIngressGeneration;
+    item.previousIngressActive = previousIngressActive;
+    arrReplayQueue.push({
+      ...item,
+    });
+    void arrReplayPump();
+    return true;
+  };
+
+  const arrReplayRejectCurrentDelivery = async (item, error) => {
+    console.warn('String ARR 浏览器 delivery 入站失败关闭', error);
+    const cleanup = await arrReplayFailClosed(`browser-ingress:${error}`);
+    const cleanupAuthorityGeneration = arrReplayIngressGeneration;
+    await arrReplaySendReceipt(item, false, 'processing-failed');
+    if (cleanupAuthorityGeneration === arrReplayIngressGeneration &&
+        arrReplayCleanupFailed(cleanup))
+      arrReplayLockBrowserPage(`ingress-cleanup:${cleanup.error}`);
+  };
+
+  const arrReplayLeaseMatches = (lease, item) =>
+    lease !== undefined && item !== undefined &&
+    lease.pageSessionId === item.pageSessionId &&
+    lease.pageSessionOrdinal === item.pageSessionOrdinal &&
+    lease.bridgeInstanceId === item.bridgeInstanceId;
+
+  const handleArrReplayEvent = (envelope) => {
+    let item;
+    try {
+      item = arrReplayPrepareDeliveryItem(envelope);
+    } catch (error) {
+      console.warn('String ARR 回放 delivery envelope 被拒绝', error);
+      const exactOuter = arrReplayTrustedEnvelopeHeader(envelope);
+      const ownsActiveLease =
+        arrReplayLeaseMatches(arrReplayBrowserSession.active, envelope);
+      const ownsCandidateLease =
+        arrReplayLeaseMatches(arrReplayBrowserSession.candidate, envelope);
+      if (exactOuter && (ownsActiveLease || ownsCandidateLease) &&
+          !arrReplayBrowserSession.locked &&
+          !arrReplayBrowserSession.pageHidden) {
+        const ingressGeneration = arrReplayIngressGeneration;
+        const handshakeGeneration =
+          arrReplayBrowserSession.handshakeGeneration;
+        const closeWithoutReceipt = async () => {
+          await arrReplayFailClosed(
+            `browser-envelope:${error}`,
+            ingressGeneration,
+          );
+          if (handshakeGeneration !==
+              arrReplayBrowserSession.handshakeGeneration)
+            return;
+          arrReplayLockBrowserPage(
+            `browser-envelope-no-receipt:${error}`,
+            { discardDeliveriesLocally: true },
+          );
+        };
+        const cleanup = closeWithoutReceipt();
+        void arrReplayNativePromiseThen.call(cleanup, undefined, () => {});
+      }
       return;
     }
-    arrReplayQueue.push(event);
-    void arrReplayPump();
+    if (arrReplayBrowserSession.dormant) {
+      item.receiptAttempted = true;
+      arrReplayReleaseDelivery(item);
+      return;
+    }
+    if (arrReplayBrowserSession.locked || arrReplayBrowserSession.pageHidden) {
+      arrReplaySendStaleWithoutWaiting(item);
+      return;
+    }
+
+    const candidate = arrReplayBrowserSession.candidate;
+    if (arrReplayLeaseMatches(candidate, item)) {
+      if (item.deliveryId <= candidate.lastDeliveryId ||
+          arrReplayBrowserSession.candidateDelivery !== undefined) {
+        arrReplaySendStaleWithoutWaiting(item);
+        return;
+      }
+      try {
+        arrReplayTrackPendingDelivery(item);
+      } catch (error) {
+        void arrReplayRejectCurrentDelivery(item, error);
+        return;
+      }
+      candidate.lastDeliveryId = item.deliveryId;
+      arrReplayBrowserSession.candidateDelivery = item;
+      return;
+    }
+
+    const active = arrReplayBrowserSession.active;
+    if (!arrReplayLeaseMatches(active, item)) {
+      arrReplaySendStaleWithoutWaiting(item);
+      return;
+    }
+    if (item.deliveryId <= active.lastDeliveryId) {
+      arrReplaySendStaleWithoutWaiting(item);
+      return;
+    }
+    const event = item.envelope.event;
+    const preemptive = arrReplayLifecycleIngressCandidate(event) &&
+        event.replayEpoch > arrReplayIngressEpochHighWater ||
+      arrReplayTransportResetIngressCandidate(event);
+    if (arrReplayLeaseMatches(active, arrReplayProcessingItem) &&
+        arrReplayProcessingItem.receiptReason === 'accepted' &&
+        !preemptive &&
+        arrReplayBrowserSession.postAckDelivery === undefined) {
+      try {
+        arrReplayTrackPendingDelivery(item);
+        active.lastDeliveryId = item.deliveryId;
+        arrReplayBrowserSession.postAckDelivery = item;
+      } catch (error) {
+        void arrReplayRejectCurrentDelivery(item, error);
+      }
+      return;
+    }
+    if (arrReplayHasDeliveryForLease(active) && !preemptive) {
+      arrReplaySendStaleWithoutWaiting(item);
+      return;
+    }
+    try {
+      arrReplayTrackPendingDelivery(item);
+      active.lastDeliveryId = item.deliveryId;
+      if (!arrReplayAdmitDelivery(item))
+        arrReplaySendStaleWithoutWaiting(item);
+    } catch (error) {
+      void arrReplayRejectCurrentDelivery(item, error);
+    }
   };
+
+  const arrReplayChallengeResponse = (response, pageSessionId, activation) => {
+    if (!arrReplayExactKeys(response, [
+      'ok',
+      'projectionVersion',
+      'action',
+      'pageSessionId',
+      'pageSessionOrdinal',
+      'pageActivatedAtUnixMicros',
+      'challenge',
+      'bridgeInstanceId',
+    ]) ||
+        response.ok !== true ||
+        response.projectionVersion !== arrReplayStateProjectionVersion ||
+        response.action !== 'challenge' ||
+        response.pageSessionId !== pageSessionId ||
+        response.pageActivatedAtUnixMicros !== activation ||
+        !arrReplaySafeInteger(response.pageSessionOrdinal, 1, Number.MAX_SAFE_INTEGER) ||
+        !arrReplayValidLowerHexId(response.challenge) ||
+        !arrReplayValidLowerHexId(response.bridgeInstanceId))
+      return undefined;
+    return {
+      pageSessionId,
+      pageSessionOrdinal: response.pageSessionOrdinal,
+      pageActivatedAtUnixMicros: activation,
+      challenge: response.challenge,
+      bridgeInstanceId: response.bridgeInstanceId,
+      lastDeliveryId: 0,
+    };
+  };
+
+  const arrReplayConfirmedResponse = (response, pageSessionId, activation) => {
+    if (!arrReplayExactKeys(response, [
+      'ok',
+      'projectionVersion',
+      'action',
+      'pageSessionId',
+      'pageSessionOrdinal',
+      'pageActivatedAtUnixMicros',
+      'bridgeInstanceId',
+    ]) ||
+        response.ok !== true ||
+        response.projectionVersion !== arrReplayStateProjectionVersion ||
+        response.action !== 'confirmed' ||
+        response.pageSessionId !== pageSessionId ||
+        response.pageActivatedAtUnixMicros !== activation ||
+        !arrReplaySafeInteger(response.pageSessionOrdinal, 1, Number.MAX_SAFE_INTEGER) ||
+        !arrReplayValidLowerHexId(response.bridgeInstanceId))
+      return undefined;
+    return {
+      pageSessionId,
+      pageSessionOrdinal: response.pageSessionOrdinal,
+      pageActivatedAtUnixMicros: activation,
+      bridgeInstanceId: response.bridgeInstanceId,
+      lastDeliveryId: 0,
+    };
+  };
+
+  const arrReplaySameBrowserLease = (left, right) =>
+    left !== undefined && right !== undefined &&
+    left.pageSessionId === right.pageSessionId &&
+    left.pageSessionOrdinal === right.pageSessionOrdinal &&
+    left.bridgeInstanceId === right.bridgeInstanceId;
+
+  const arrReplayOverlayApiReadiness = () => {
+    try {
+      const api = globalThis.OverlayPluginApi;
+      if ((typeof api !== 'object' || api === null) &&
+          typeof api !== 'function')
+        return 'unknown';
+      if (!('ready' in api))
+        return 'unknown';
+      return api.ready === true ? 'ready' : 'not-ready';
+    } catch (_error) {
+      // An absent or nonstandard global is valid in WebSocket and some
+      // embedded CEF modes. The bounded RPC budget remains the authority.
+      return 'unknown';
+    }
+  };
+
+  const arrReplayBrowserHandshakeBudgetElapsedMs = () => {
+    const startedAt = arrReplayBrowserSession.handshakeBudgetStartedAtMs;
+    return startedAt === undefined
+      ? 0
+      : Math.max(0, arrReplayWallNow() - startedAt);
+  };
+
+  const arrReplayBrowserHandshakeBudgetExhausted = () =>
+    arrReplayBrowserSession.rawRpcOutstanding >=
+      arrReplayBrowserMaximumHandshakeRpcAttempts ||
+    arrReplayBrowserSession.handshakeRpcAttempts >=
+      arrReplayBrowserMaximumHandshakeRpcAttempts ||
+    arrReplayBrowserSession.handshakeBudgetStartedAtMs !== undefined &&
+      arrReplayBrowserHandshakeBudgetElapsedMs() >=
+        arrReplayBrowserHandshakeBudgetMs;
+
+  const arrReplayResetBrowserHandshakeBudget = () => {
+    arrReplayBrowserSession.handshakeRpcAttempts = 0;
+    arrReplayBrowserSession.handshakeBudgetStartedAtMs = undefined;
+    arrReplayBrowserSession.dormant = false;
+    arrReplayBrowserSession.dormantReason = undefined;
+  };
+
+  const arrReplayBudgetedBrowserHandshakeCall = (request) => {
+    const readiness = arrReplayOverlayApiReadiness();
+    arrReplayBrowserSession.overlayApiReadiness = readiness;
+    if (readiness === 'not-ready') {
+      arrReplayBrowserSession.readinessObservedNotReady = true;
+      const error = new Error('OverlayPlugin API 尚未就绪');
+      error.arrReplayOverlayApiNotReady = true;
+      throw error;
+    }
+    if (arrReplayBrowserHandshakeBudgetExhausted()) {
+      const error = new Error('ARR 浏览器桥握手预算已耗尽');
+      error.arrReplayHandshakeBudgetExhausted = true;
+      throw error;
+    }
+    arrReplayBrowserSession.handshakeBudgetStartedAtMs ??= arrReplayWallNow();
+    ++arrReplayBrowserSession.handshakeRpcAttempts;
+    return arrReplayNativeCallWithTimeout(
+      request,
+      arrReplayBrowserRpcTimeoutMs,
+      { trackRawRpc: true },
+    );
+  };
+
+  const arrReplayPromoteBrowserCandidate = async (candidate, handshakeGeneration) => {
+    if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration ||
+        !arrReplaySameBrowserLease(arrReplayBrowserSession.candidate, candidate))
+      return false;
+    const previous = arrReplayBrowserSession.active;
+    const sameLease = arrReplaySameBrowserLease(previous, candidate);
+    if (previous !== undefined && !sameLease) {
+      const cleanup = await arrReplayFailClosed('browser-page-session-replaced');
+      if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration)
+        return false;
+      if (arrReplayCleanupFailed(cleanup)) {
+        arrReplayLockBrowserPage(`candidate-cleanup:${cleanup.error}`);
+        return false;
+      }
+      if (cleanup.stale)
+        return false;
+    }
+    if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration ||
+        arrReplayBrowserSession.locked || arrReplayBrowserSession.pageHidden)
+      return false;
+
+    candidate.requiresSourceZeroLifecycle = sameLease
+      ? previous.requiresSourceZeroLifecycle
+      : true;
+    candidate.lastDeliveryId = sameLease
+      ? Math.max(previous.lastDeliveryId, candidate.lastDeliveryId)
+      : candidate.lastDeliveryId;
+    arrReplayBrowserSession.active = candidate;
+    arrReplayBrowserSession.candidate = undefined;
+    arrReplayBrowserSession.status = 'active';
+    arrReplayBrowserSession.lastError = undefined;
+    arrReplayBrowserSession.readinessObservedNotReady = false;
+    arrReplayResetBrowserHandshakeBudget();
+    const buffered = arrReplayBrowserSession.candidateDelivery;
+    arrReplayBrowserSession.candidateDelivery = undefined;
+    if (buffered !== undefined) {
+      try {
+        if (!arrReplayAdmitDelivery(buffered))
+          arrReplaySendStaleWithoutWaiting(buffered);
+      } catch (error) {
+        void arrReplayRejectCurrentDelivery(buffered, error);
+      }
+    }
+    return true;
+  };
+
+  const arrReplayClearHandshakeTimer = () => {
+    if (arrReplayBrowserSession.handshakeTimer !== undefined)
+      arrReplayNativeClearTimeout(arrReplayBrowserSession.handshakeTimer);
+    arrReplayBrowserSession.handshakeTimer = undefined;
+  };
+
+  const arrReplayScheduleBrowserHandshake = (delayMs) => {
+    if (arrReplayBrowserSession.locked || arrReplayBrowserSession.pageHidden)
+      return;
+    arrReplayClearHandshakeTimer();
+    const generation = arrReplayBrowserSession.handshakeGeneration;
+    arrReplayBrowserSession.handshakeTimer = arrReplayNativeSetTimeout(() => {
+      arrReplayBrowserSession.handshakeTimer = undefined;
+      if (generation !== arrReplayBrowserSession.handshakeGeneration)
+        return;
+      void arrReplayRunBrowserHandshake(generation);
+    }, delayMs);
+    arrReplayBrowserSession.handshakeTimer?.unref?.();
+  };
+
+  const arrReplayDiscardCandidateDeliveryLocally = () => {
+    const item = arrReplayBrowserSession.candidateDelivery;
+    arrReplayBrowserSession.candidateDelivery = undefined;
+    if (item !== undefined) {
+      item.receiptAttempted = true;
+      arrReplayReleaseDelivery(item);
+    }
+  };
+
+  const arrReplayDropCandidateDelivery = () => {
+    const item = arrReplayBrowserSession.candidateDelivery;
+    arrReplayBrowserSession.candidateDelivery = undefined;
+    if (item !== undefined)
+      arrReplaySendStaleWithoutWaiting(item);
+  };
+
+  const arrReplayEnterBrowserDormant = (reason) => {
+    if (arrReplayBrowserSession.dormant)
+      return arrReplayBrowserSession.dormantCleanupPromise;
+    ++arrReplayBrowserSession.handshakeGeneration;
+    const dormantHandshakeGeneration =
+      arrReplayBrowserSession.handshakeGeneration;
+    arrReplayClearHandshakeTimer();
+    arrReplayBrowserSession.handshakeInFlight = false;
+    arrReplayBrowserSession.subscribed = false;
+    arrReplayBrowserSession.active = undefined;
+    arrReplayBrowserSession.candidate = undefined;
+    arrReplayDiscardCandidateDeliveryLocally();
+    const postAckDelivery = arrReplayBrowserSession.postAckDelivery;
+    arrReplayBrowserSession.postAckDelivery = undefined;
+    if (postAckDelivery !== undefined) {
+      postAckDelivery.receiptAttempted = true;
+      arrReplayReleaseDelivery(postAckDelivery);
+    }
+    arrReplayDropDeliveriesLocally();
+    arrReplayBrowserSession.dormant = true;
+    arrReplayBrowserSession.dormantReason = `${reason}`.slice(0, 256);
+    arrReplayBrowserSession.dormantCleanupInFlight = true;
+    arrReplayBrowserSession.status = 'dormant-cleanup';
+    arrReplayBrowserSession.lastError = arrReplayBrowserSession.dormantReason;
+    arrReplayBrowserSession.readinessObservedNotReady = false;
+    let cleanupResult;
+    const cleanup = (async () => {
+      try {
+        cleanupResult = await arrReplayFailClosed(
+          `browser-dormant:${arrReplayBrowserSession.dormantReason}`,
+          undefined,
+          { localOverlayRestore: true },
+        );
+      } catch (error) {
+        cleanupResult = {
+          ok: false,
+          stale: false,
+          error: `${error}`,
+        };
+      } finally {
+        if (dormantHandshakeGeneration !==
+            arrReplayBrowserSession.handshakeGeneration)
+          return;
+        arrReplayBrowserSession.dormantCleanupInFlight = false;
+        if (arrReplayCleanupFailed(cleanupResult)) {
+          arrReplayLockBrowserPage(
+            `browser-dormant-cleanup:${cleanupResult.error}`,
+          );
+          return;
+        }
+        if (cleanupResult?.stale === true)
+          return;
+        if (!arrReplayBrowserSession.locked &&
+            !arrReplayBrowserSession.pageHidden) {
+          arrReplayBrowserSession.status = 'dormant';
+          arrReplayScheduleBrowserHandshake(arrReplayBrowserReadinessProbeMs);
+        }
+      }
+    })();
+    arrReplayBrowserSession.dormantCleanupPromise = cleanup;
+    return cleanup;
+  };
+
+  const arrReplayCreateLogicalPageSession = ({
+    resetHandshakeBudget = true,
+    resetExplicitRetries = true,
+    discardCandidateWithoutReceipt = false,
+  } = {}) => {
+    ++arrReplayBrowserSession.handshakeGeneration;
+    ++arrReplayCleanupToken;
+    arrReplayClearHandshakeTimer();
+    if (discardCandidateWithoutReceipt)
+      arrReplayDiscardCandidateDeliveryLocally();
+    else
+      arrReplayDropCandidateDelivery();
+    if (resetHandshakeBudget)
+      arrReplayResetBrowserHandshakeBudget();
+    arrReplayBrowserSession.dormantCleanupInFlight = false;
+    if (resetExplicitRetries) {
+      arrReplayBrowserSession.explicitRetryCount = 0;
+      arrReplayBrowserSession.lastExplicitRetryAtMs = undefined;
+    }
+    arrReplayBrowserSession.pageSessionId = arrReplayRandomHexId();
+    arrReplayBrowserSession.pageActivatedAtUnixMicros =
+      arrReplayPageActivationUnixMicros();
+    arrReplayBrowserSession.candidate = undefined;
+    arrReplayBrowserSession.subscribed = false;
+    arrReplayBrowserSession.handshakeInFlight = false;
+    arrReplayBrowserSession.readinessObservedNotReady = false;
+    arrReplayBrowserSession.status = 'waiting-bridge';
+    arrReplayBrowserSession.lastError = undefined;
+    void arrReplayRunBrowserHandshake(arrReplayBrowserSession.handshakeGeneration);
+  };
+
+  const arrReplayFailActiveBrowserLease = async (
+      error,
+      expectedHandshakeGeneration) => {
+    if (expectedHandshakeGeneration !==
+        arrReplayBrowserSession.handshakeGeneration)
+      return false;
+    const active = arrReplayBrowserSession.active;
+    arrReplayBrowserSession.active = undefined;
+    arrReplayBrowserSession.candidate = undefined;
+    arrReplayBrowserSession.subscribed = false;
+    arrReplayBrowserSession.lastError = `${error}`.slice(0, 256);
+    arrReplayBrowserSession.status = 'lease-failed';
+    let cleanup = {
+      ok: true,
+      stale: false,
+      vfxCleanupConfirmed: true,
+    };
+    if (active !== undefined) {
+      cleanup = await arrReplayFailClosed(
+        `browser-lease:${error}`,
+        undefined,
+        { localOverlayRestore: true },
+      );
+    }
+    if (expectedHandshakeGeneration !==
+        arrReplayBrowserSession.handshakeGeneration)
+      return false;
+    if (arrReplayCleanupFailed(cleanup)) {
+      arrReplayLockBrowserPage(`browser-lease-cleanup:${cleanup.error}`);
+      return false;
+    }
+    if (cleanup.stale)
+      return false;
+    if (!arrReplayBrowserSession.locked && !arrReplayBrowserSession.pageHidden) {
+      arrReplayCreateLogicalPageSession({
+        resetHandshakeBudget: false,
+        resetExplicitRetries: false,
+        discardCandidateWithoutReceipt: true,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  const arrReplayRunBrowserHandshake = async (handshakeGeneration) => {
+    if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration ||
+        arrReplayBrowserSession.handshakeInFlight ||
+        arrReplayBrowserSession.locked ||
+        arrReplayBrowserSession.pageHidden ||
+        globalThis.document?.prerendering === true)
+      return;
+
+    const readiness = arrReplayOverlayApiReadiness();
+    arrReplayBrowserSession.overlayApiReadiness = readiness;
+    if (readiness === 'not-ready') {
+      arrReplayBrowserSession.readinessObservedNotReady = true;
+      if (!arrReplayBrowserSession.dormant) {
+        arrReplayBrowserSession.status = 'waiting-overlay-api';
+        arrReplayBrowserSession.lastError = undefined;
+      }
+      arrReplayScheduleBrowserHandshake(arrReplayBrowserReadinessProbeMs);
+      return;
+    }
+    if (arrReplayBrowserSession.readinessObservedNotReady) {
+      if (readiness === 'ready') {
+        arrReplayCreateLogicalPageSession({
+          resetHandshakeBudget: true,
+          resetExplicitRetries: false,
+          discardCandidateWithoutReceipt: true,
+        });
+      } else {
+        arrReplayScheduleBrowserHandshake(arrReplayBrowserReadinessProbeMs);
+      }
+      return;
+    }
+    if (arrReplayBrowserSession.dormant) {
+      if (!arrReplayBrowserSession.dormantCleanupInFlight)
+        arrReplayScheduleBrowserHandshake(arrReplayBrowserReadinessProbeMs);
+      return;
+    }
+    if (arrReplayBrowserHandshakeBudgetExhausted()) {
+      await arrReplayEnterBrowserDormant('ARR 浏览器桥握手预算已耗尽');
+      return;
+    }
+    if (arrReplayBrowserSession.active !== undefined &&
+        arrReplayPendingDeliveryCount > 0) {
+      arrReplayScheduleBrowserHandshake(arrReplayBrowserRenewalMs);
+      return;
+    }
+    arrReplayBrowserSession.handshakeInFlight = true;
+    const pageSessionId = arrReplayBrowserSession.pageSessionId;
+    const activation = arrReplayBrowserSession.pageActivatedAtUnixMicros;
+    const hadActiveAtStart = arrReplayBrowserSession.active !== undefined;
+    let stage = 'preflight';
+    try {
+      if (!arrReplayBrowserSession.subscribed) {
+        stage = 'subscribe';
+        const subscribed = await arrReplayBudgetedBrowserHandshakeCall({
+          call: 'subscribe',
+          events: ['StringArrReplayEvent'],
+        });
+        if (subscribed !== null)
+          throw new Error('StringArrReplayEvent 显式 subscribe 未返回 null');
+        if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration)
+          return;
+        arrReplayBrowserSession.subscribed = true;
+      }
+
+      stage = 'ready';
+      const readyResponse = await arrReplayBudgetedBrowserHandshakeCall({
+        call: 'stringArrReplayTest',
+        action: 'ready',
+        projectionVersion: arrReplayStateProjectionVersion,
+        pageRole: arrReplayBrowserPageRole,
+        pageSessionId,
+        pageActivatedAtUnixMicros: activation,
+      });
+      if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration)
+        return;
+
+      let candidate = arrReplayConfirmedResponse(readyResponse, pageSessionId, activation);
+      if (candidate !== undefined) {
+        const active = arrReplayBrowserSession.active;
+        const pending = arrReplayBrowserSession.candidate;
+        if (arrReplaySameBrowserLease(active, candidate)) {
+          candidate.lastDeliveryId = active.lastDeliveryId;
+          candidate.requiresSourceZeroLifecycle = active.requiresSourceZeroLifecycle;
+        } else if (arrReplaySameBrowserLease(pending, candidate)) {
+          candidate.lastDeliveryId = pending.lastDeliveryId;
+        }
+        arrReplayBrowserSession.candidate = candidate;
+        await arrReplayPromoteBrowserCandidate(candidate, handshakeGeneration);
+        return;
+      }
+
+      candidate = arrReplayChallengeResponse(readyResponse, pageSessionId, activation);
+      if (candidate === undefined) {
+        const code = typeof readyResponse?.code === 'string'
+          ? readyResponse.code
+          : 'browser-ready-schema';
+        const error = new Error(`ARR ready 被拒绝：${code}`);
+        error.arrReplayCode = code;
+        throw error;
+      }
+      const oldCandidate = arrReplayBrowserSession.candidate;
+      if (arrReplaySameBrowserLease(oldCandidate, candidate)) {
+        candidate.lastDeliveryId = oldCandidate.lastDeliveryId;
+      } else {
+        arrReplayDropCandidateDelivery();
+      }
+      // Arm the candidate before invoking confirm. Managed may synchronously
+      // publish the first delivery after committing the confirm side effect.
+      arrReplayBrowserSession.candidate = candidate;
+      arrReplayBrowserSession.status = 'confirming';
+      stage = 'confirm';
+      const confirmResponse = await arrReplayBudgetedBrowserHandshakeCall({
+        call: 'stringArrReplayTest',
+        action: 'confirm',
+        projectionVersion: arrReplayStateProjectionVersion,
+        pageRole: arrReplayBrowserPageRole,
+        pageSessionId: candidate.pageSessionId,
+        pageSessionOrdinal: candidate.pageSessionOrdinal,
+        pageActivatedAtUnixMicros: candidate.pageActivatedAtUnixMicros,
+        challenge: candidate.challenge,
+        bridgeInstanceId: candidate.bridgeInstanceId,
+      });
+      if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration)
+        return;
+      const confirmed = arrReplayConfirmedResponse(
+        confirmResponse,
+        pageSessionId,
+        activation,
+      );
+      if (confirmed === undefined ||
+          !arrReplaySameBrowserLease(confirmed, candidate))
+        throw new Error('ARR confirm 响应字段或 lease 不匹配');
+      confirmed.lastDeliveryId = candidate.lastDeliveryId;
+      arrReplayBrowserSession.candidate = confirmed;
+      await arrReplayPromoteBrowserCandidate(confirmed, handshakeGeneration);
+    } catch (error) {
+      if (handshakeGeneration !== arrReplayBrowserSession.handshakeGeneration)
+        return;
+      arrReplayBrowserSession.lastError = `${error}`.slice(0, 256);
+      arrReplayBrowserSession.status = 'retrying';
+      if (stage === 'subscribe' ||
+          arrReplayOverlayApiReadiness() === 'not-ready')
+        arrReplayBrowserSession.subscribed = false;
+      if (arrReplayBrowserHandshakeBudgetExhausted() ||
+          error?.arrReplayHandshakeBudgetExhausted === true) {
+        await arrReplayEnterBrowserDormant(error);
+        return;
+      }
+      if (hadActiveAtStart) {
+        await arrReplayFailActiveBrowserLease(error, handshakeGeneration);
+        return;
+      }
+      if (error?.arrReplayCode === 'browser_ready_clock') {
+        arrReplayCreateLogicalPageSession({
+          resetHandshakeBudget: false,
+          resetExplicitRetries: false,
+        });
+        return;
+      }
+    } finally {
+      if (handshakeGeneration === arrReplayBrowserSession.handshakeGeneration) {
+        arrReplayBrowserSession.handshakeInFlight = false;
+        let retryDelay = arrReplayBrowserRetryMs;
+        if (arrReplayBrowserSession.readinessObservedNotReady)
+          retryDelay = arrReplayBrowserReadinessProbeMs;
+        else if (arrReplayBrowserSession.active !== undefined)
+          retryDelay = arrReplayBrowserRenewalMs;
+        else if (arrReplayBrowserSession.candidate !== undefined ||
+            arrReplayBrowserSession.candidateDelivery !== undefined)
+          retryDelay = arrReplayBrowserFastRetryMs;
+        arrReplayScheduleBrowserHandshake(retryDelay);
+      }
+    }
+  };
+
+  const arrReplayHandlePageHide = () => {
+    if (arrReplayBrowserSession.pageHidden)
+      return;
+    const wasDormant = arrReplayBrowserSession.dormant;
+    arrReplayBrowserSession.pageHidden = true;
+    ++arrReplayBrowserSession.handshakeGeneration;
+    arrReplayClearHandshakeTimer();
+    arrReplayBrowserSession.status = arrReplayBrowserSession.locked
+      ? 'locked'
+      : 'page-hidden';
+    arrReplayBrowserSession.active = undefined;
+    arrReplayBrowserSession.candidate = undefined;
+    arrReplayDropCandidateDelivery();
+    const postAckDelivery = arrReplayBrowserSession.postAckDelivery;
+    arrReplayBrowserSession.postAckDelivery = undefined;
+    if (postAckDelivery !== undefined)
+      arrReplaySendStaleWithoutWaiting(postAckDelivery);
+    arrReplayBrowserSession.subscribed = false;
+    arrReplayBrowserSession.handshakeInFlight = false;
+    if (!arrReplayBrowserSession.locked) {
+      arrReplayBrowserSession.pageCleanupPromise = arrReplayFailClosed(
+        'browser-pagehide',
+        undefined,
+        { localOverlayRestore: wasDormant },
+      );
+      void arrReplayNativePromiseThen.call(
+        arrReplayBrowserSession.pageCleanupPromise,
+        undefined,
+        () => {},
+      );
+    }
+  };
+
+  const arrReplayHandlePageShow = (event) => {
+    if (arrReplayBrowserSession.locked || event?.persisted !== true)
+      return;
+    arrReplayBrowserSession.pageHidden = false;
+    const resumeHandshakeGeneration =
+      arrReplayBrowserSession.handshakeGeneration;
+    const cleanup = arrReplayBrowserSession.pageCleanupPromise;
+    const resume = async () => {
+      try {
+        const result = await cleanup;
+        if (resumeHandshakeGeneration !==
+            arrReplayBrowserSession.handshakeGeneration ||
+            arrReplayBrowserSession.locked ||
+            arrReplayBrowserSession.pageHidden)
+          return;
+        if (arrReplayCleanupFailed(result)) {
+          arrReplayLockBrowserPage(`browser-pagehide-cleanup:${result.error}`);
+          return;
+        }
+        if (result?.stale === true)
+          return;
+        arrReplayCreateLogicalPageSession();
+      } catch (error) {
+        arrReplayLockBrowserPage(error);
+      }
+    };
+    void resume();
+  };
+
+  const arrReplayInitializeBrowserPageSession = () => {
+    if (!arrReplayBrowserPageEligible) {
+      arrReplayBrowserSession.status = 'ineligible-timeline-only';
+      return;
+    }
+    if (globalThis.document?.prerendering === true) {
+      arrReplayBrowserSession.status = 'prerendering';
+      globalThis.document.addEventListener?.('prerenderingchange', () => {
+        if (globalThis.document?.prerendering === true ||
+            arrReplayBrowserSession.locked)
+          return;
+        try {
+          arrReplayCreateLogicalPageSession();
+        } catch (error) {
+          arrReplayLockBrowserPage(error);
+        }
+      }, { once: true });
+      return;
+    }
+    try {
+      arrReplayCreateLogicalPageSession();
+    } catch (error) {
+      arrReplayLockBrowserPage(error);
+    }
+  };
+
+  const arrReplayCanExplicitBrowserRetry = () => {
+    if (!arrReplayBrowserPageEligible ||
+        !arrReplayBrowserSession.dormant ||
+        arrReplayBrowserSession.dormantCleanupInFlight ||
+        arrReplayBrowserSession.locked ||
+        arrReplayBrowserSession.pageHidden ||
+        globalThis.document?.prerendering === true ||
+        arrReplayBrowserSession.rawRpcOutstanding >=
+          arrReplayBrowserMaximumHandshakeRpcAttempts ||
+        arrReplayBrowserSession.explicitRetryCount >=
+          arrReplayBrowserMaximumExplicitRetries)
+      return false;
+    const lastRetryAt = arrReplayBrowserSession.lastExplicitRetryAtMs;
+    return lastRetryAt === undefined ||
+      arrReplayWallNow() - lastRetryAt >= arrReplayBrowserExplicitRetryCooldownMs;
+  };
+
+  const arrReplayRetryBrowserSession = () => {
+    if (!arrReplayCanExplicitBrowserRetry())
+      return false;
+    ++arrReplayBrowserSession.explicitRetryCount;
+    arrReplayBrowserSession.lastExplicitRetryAtMs = arrReplayWallNow();
+    try {
+      arrReplayCreateLogicalPageSession({
+        resetHandshakeBudget: true,
+        resetExplicitRetries: false,
+        discardCandidateWithoutReceipt: true,
+      });
+      return true;
+    } catch (error) {
+      arrReplayLockBrowserPage(error);
+      return false;
+    }
+  };
+
+  const arrReplayBrowserSessionSnapshot = () => Object.freeze({
+    status: arrReplayBrowserSession.status,
+    pageRole: arrReplayBrowserSession.pageRole,
+    eligible: arrReplayBrowserSession.eligible,
+    locked: arrReplayBrowserSession.locked,
+    subscribed: arrReplayBrowserSession.subscribed,
+    dormant: arrReplayBrowserSession.dormant,
+    dormantReason: arrReplayBrowserSession.dormantReason,
+    dormantCleanupInFlight: arrReplayBrowserSession.dormantCleanupInFlight,
+    overlayApiReadiness: arrReplayBrowserSession.overlayApiReadiness,
+    handshakeRpcAttempts: arrReplayBrowserSession.handshakeRpcAttempts,
+    rawRpcOutstanding: arrReplayBrowserSession.rawRpcOutstanding,
+    maximumHandshakeRpcAttempts:
+      arrReplayBrowserMaximumHandshakeRpcAttempts,
+    handshakeBudgetMilliseconds: arrReplayBrowserHandshakeBudgetMs,
+    handshakeBudgetElapsedMilliseconds:
+      arrReplayBrowserHandshakeBudgetElapsedMs(),
+    explicitRetryCount: arrReplayBrowserSession.explicitRetryCount,
+    maximumExplicitRetries: arrReplayBrowserMaximumExplicitRetries,
+    canExplicitRetry: arrReplayCanExplicitBrowserRetry(),
+    pageSessionId: arrReplayBrowserSession.pageSessionId,
+    pageActivatedAtUnixMicros: arrReplayBrowserSession.pageActivatedAtUnixMicros,
+    active: arrReplayBrowserSession.active === undefined
+      ? undefined
+      : Object.freeze({
+        pageSessionId: arrReplayBrowserSession.active.pageSessionId,
+        pageSessionOrdinal: arrReplayBrowserSession.active.pageSessionOrdinal,
+        bridgeInstanceId: arrReplayBrowserSession.active.bridgeInstanceId,
+        requiresSourceZeroLifecycle:
+          arrReplayBrowserSession.active.requiresSourceZeroLifecycle,
+        lastDeliveryId: arrReplayBrowserSession.active.lastDeliveryId,
+      }),
+    candidate: arrReplayBrowserSession.candidate === undefined
+      ? undefined
+      : Object.freeze({
+        pageSessionId: arrReplayBrowserSession.candidate.pageSessionId,
+        pageSessionOrdinal: arrReplayBrowserSession.candidate.pageSessionOrdinal,
+        bridgeInstanceId: arrReplayBrowserSession.candidate.bridgeInstanceId,
+        bufferedDelivery:
+          arrReplayBrowserSession.candidateDelivery !== undefined,
+      }),
+    queueDepth: arrReplayPendingDeliveryCount,
+    queuedUtf8Bytes: arrReplayQueuedUtf8Bytes,
+    processingDeliveryId: arrReplayProcessingItem?.deliveryId,
+    postAckDeliveryId: arrReplayBrowserSession.postAckDelivery?.deliveryId,
+    lastError: arrReplayBrowserSession.lastError,
+  });
 
   // Live 0x0362 adapter: the DLL emits only the three validated P3 element
   // semantics and a standard 261 LogLine DTO. Raw network bytes never reach JS.
@@ -2018,13 +6036,20 @@
 
   const getSafeEncounterConfigSnapshot = () => ({ ...safeEncounterConfig });
 
-  const callStringConfig = async (action, payload = {}) => {
+  const callStringConfig = async (
+      action,
+      payload = {},
+      { applyState = true, timeoutMs } = {}) => {
     if (isDebugPage)
       return { ok: true, state: getEncounterConfigSnapshot(), debug: true };
-    const result = await callOverlayHandler({ call: 'stringConfig', action, ...payload });
+    const request = { call: 'stringConfig', action, ...payload };
+    const result = timeoutMs === undefined
+      ? await callOverlayHandler(request)
+      : await arrReplayNativeCallWithTimeout(request, timeoutMs);
     if (result?.ok !== true)
       throw new Error(result?.error ?? 'String 本次设置桥接未返回成功状态');
-    syncEncounterState(result.state);
+    if (applyState)
+      syncEncounterState(result.state);
     return result;
   };
 
@@ -2041,6 +6066,22 @@
     const zoneId = Number(detail.zoneID ?? detail.zoneId ?? 0);
     if (!Number.isInteger(zoneId) || zoneId < 0)
       return;
+    if (event?.stringArrReplayStrictZoneApplied === true)
+      return;
+    if (event?.stringArrReplaySyntheticZone !== true &&
+        !arrReplayState.active && !arrLogReplayState.active && !arrLogReplayState.pending)
+      arrReplayReleaseExternalEffects();
+    if (event?.stringArrReplaySyntheticZone !== true) {
+      if (zoneId === dancingMadUltimateZoneId &&
+          !arrReplayState.active &&
+          !arrLogReplayState.active &&
+          !arrLogReplayState.pending)
+        arrLogReplayCaptureRestoreState();
+      else if (zoneId !== dancingMadUltimateZoneId &&
+          !arrLogReplayState.active &&
+          !arrLogReplayState.pending)
+        arrLogReplayClearRestoreState();
+    }
     await endVfxSession().catch((error) =>
       console.warn('String VFX 区域变化全局清理失败', error));
     try {
@@ -2066,8 +6107,15 @@
   const handleCombatChanged = async (event) => {
     const detail = event?.detail ?? event ?? {};
     const inCombat = Boolean(detail.inGameCombat ?? detail.inACTCombat ?? false);
-    await endVfxSession().catch((error) =>
-      console.warn('String VFX 战斗状态变化全局清理失败', error));
+    if (event?.stringArrReplaySyntheticCombat !== true && inCombat &&
+        !arrReplayState.active && !arrLogReplayState.active && !arrLogReplayState.pending)
+      arrReplayReleaseExternalEffects();
+    if (event?.stringArrReplaySyntheticCombat !== true) {
+      await endVfxSession().catch((error) =>
+        console.warn('String VFX 战斗状态变化全局清理失败', error));
+    }
+    if (event?.stringArrReplayLocalOnly === true)
+      return;
     try {
       await callStringConfig('setCombat', { inCombat });
     } catch (error) {
@@ -2094,7 +6142,8 @@
         roleOverlayLastSeen = monotonicMilliseconds();
     }
     externalPartyRp = msg.msg.party;
-    if (externalPartyRp !== undefined && !arrReplayPartyMode)
+    if (externalPartyRp !== undefined &&
+        (!arrReplayPartyMode || isCompletePartyRoleMapping(externalPartyRp, stringParty)))
       updatePartyRp();
   };
 
@@ -2108,8 +6157,11 @@
         createParty(event.party);
         return;
       }
+      if (arrReplayStrictIdentityPinned)
+        return;
       lastLiveParty = (event.party ?? []).map((member) => ({ ...member }));
-      if (arrReplayPartyMode)
+      arrLogReplayStopForNativeParty();
+      if (arrReplayPartyMode || arrLogReplayState.pending)
         return;
       if (externalPartyRp === undefined) {
         partyUpdateTimer = setTimeout(() => createParty(event.party), 500);
@@ -2117,12 +6169,33 @@
       }
       createParty(event.party);
     });
+    addOverlayListener('onPlayerChangedEvent', (event) => {
+      if (event?.stringArrReplaySynthetic === true ||
+          event?.stringArrReplayDetected === true ||
+          event?.stringArrReplayRestore === true)
+        return;
+      if (arrReplayStrictIdentityPinned)
+        return;
+      lastLivePlayerEvent = {
+        ...event,
+        detail: { ...(event?.detail ?? {}) },
+      };
+    });
     addOverlayListener('BroadcastMessage', handleBroadcastMessage);
     addOverlayListener('StringConfigChanged', (event) => syncEncounterState(event.state));
     addOverlayListener('ChangeZone', handleZoneChanged);
     addOverlayListener('onInCombatChangedEvent', handleCombatChanged);
-    addOverlayListener('StringArrReplayEvent', handleArrReplayEvent);
+    if (arrReplayBrowserPageEligible)
+      addOverlayListener('StringArrReplayEvent', handleArrReplayEvent);
     addOverlayListener('StringLiveSemanticEvent', handleLiveSemanticEvent);
+    addOverlayListener('LogLine', handleArrLogReplayLine);
+    if (arrReplayBrowserPageEligible) {
+      globalThis.addEventListener?.('pagehide', arrReplayHandlePageHide);
+      globalThis.addEventListener?.('pageshow', arrReplayHandlePageShow);
+      // Listener registration must precede the explicit subscribe/ready barrier.
+      // Otherwise a synchronous managed confirm can publish into a missing receiver.
+      arrReplayInitializeBrowserPageSession();
+    }
     requestEncounterState();
   }
 
@@ -2153,7 +6226,14 @@
     endVfxSession,
     getVfxStatus,
     getArrReplayClock: arrReplayClockSnapshot,
+    getArrReplayBrowserSession: arrReplayBrowserSessionSnapshot,
+    retryArrReplayBrowserSession: arrReplayRetryBrowserSession,
     getArrReplayCombatants,
+    scheduleArrReplayTask,
+    cancelArrReplayTask,
+    getArrReplaySchedulerState,
+    isArrReplayActive: () =>
+      arrReplayState.active || arrLogReplayState.active || arrLogReplayState.pending,
     getLiveSemanticClock: liveSemanticClockSnapshot,
     getEncounterConfig,
     getEncounterConfigSnapshot,
