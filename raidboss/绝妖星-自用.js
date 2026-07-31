@@ -781,13 +781,16 @@ const myDmuMarkEnabled = (data, key) =>
   myDmuRoleOverlayConnected(data) &&
   myDmuMarkConfigured(data, key);
 
-const myDmuAnyMarkEnabled = (data) => [
+const myDmuMarkConfigKeys = [
   'MyDMU_P1PoisonMarkV3',
   'MyDMU_P2TowerMarkV3',
   'MyDMU_P3MahjongMarkV3',
   'MyDMU_P3TargetMarkV3',
   'MyDMU_P4BuffMarkV3',
-].some((key) => myDmuMarkConfigured(data, key));
+];
+
+const myDmuAnyMarkEnabled = (data) =>
+  myDmuMarkConfigKeys.some((key) => myDmuMarkConfigured(data, key));
 
 const myDmuP1CalloutEnabled = (data) =>
   data.myDmuPhase === 'p1' && myDmuBooleanConfig(data, 'MyDMU_P1Callout', true);
@@ -859,6 +862,7 @@ const myDmuTaskLifecycleRegistry = globalThis.__stringDmuTaskLifecycle ??= {
   nextToken: 0,
   currentData: undefined,
   listenersInstalled: false,
+  markConfigListenerInstalled: false,
   cleanupPromise: undefined,
 };
 
@@ -5624,6 +5628,11 @@ const myDmuBeginLifecycleCleanup = (data, reason) => {
 };
 
 const myDmuRegisterLifecycleListeners = () => {
+  if (typeof addOverlayListener === 'function' &&
+      myDmuTaskLifecycleRegistry.markConfigListenerInstalled !== true) {
+    myDmuTaskLifecycleRegistry.markConfigListenerInstalled = true;
+    addOverlayListener('StringConfigChanged', myDmuHandleMarkConfigChanged);
+  }
   if (myDmuTaskLifecycleRegistry.listenersInstalled)
     return;
   myDmuTaskLifecycleRegistry.listenersInstalled = true;
@@ -8234,8 +8243,14 @@ const myDmuApplyP1PoisonMarkers = (data, force = false) => {
   if (!force && data.myDmuP1PoisonMarkerSignature === signature)
     return true;
 
+  if (!myDmuMarkQueue(
+    data,
+    desired,
+    '绝妖星 P1 5078锁链',
+    'MyDMU_P1PoisonMarkV3',
+  ))
+    return false;
   data.myDmuP1PoisonMarkerSignature = signature;
-  myDmuMarkQueue(data, desired, '绝妖星 P1 5078锁链');
   return true;
 };
 
@@ -8248,45 +8263,74 @@ const myDmuP1CombatantPosX = (combatants, sourceId) => {
 
 const myDmuMarkActorKey = (actorId) => typeof actorId === 'string' ? actorId.toUpperCase() : `${actorId}`;
 
-const myDmuNewMarkState = () => ({ markers: {}, actors: {} });
+const myDmuNewMarkState = () => ({ markers: {}, actors: {}, owners: {}, localOnly: {} });
 
 const myDmuEnsureMarkState = (data) => {
   data.myDmuMarkState ??= {};
   data.myDmuMarkState.markers ??= {};
   data.myDmuMarkState.actors ??= {};
+  data.myDmuMarkState.owners ??= {};
+  data.myDmuMarkState.localOnly ??= {};
   return data.myDmuMarkState;
 };
 
-const myDmuChangedMarks = (data, marks) => {
+const myDmuSnapshotMarkState = (data) => {
+  const state = myDmuEnsureMarkState(data);
+  return {
+    markers: { ...state.markers },
+    actors: { ...state.actors },
+    owners: { ...state.owners },
+    localOnly: { ...state.localOnly },
+  };
+};
+
+const myDmuChangedMarks = (data, marks, ownerKey, localOnly) => {
   const state = myDmuEnsureMarkState(data);
   const nextMarkers = { ...state.markers };
   const nextActors = { ...state.actors };
+  const nextOwners = { ...state.owners };
+  const nextLocalOnly = { ...state.localOnly };
   const changed = [];
   for (const mark of marks) {
     const actorKey = myDmuMarkActorKey(mark.id);
     const currentMarkerActor = nextMarkers[mark.marker];
     const currentActorMarker = nextActors[actorKey];
-    if (currentMarkerActor === actorKey && currentActorMarker === mark.marker)
+    if (currentMarkerActor === actorKey && currentActorMarker === mark.marker) {
+      if (ownerKey !== undefined)
+        nextOwners[actorKey] = ownerKey;
       continue;
+    }
     changed.push(mark);
     if (currentActorMarker !== undefined && currentActorMarker !== mark.marker)
       delete nextMarkers[currentActorMarker];
-    if (currentMarkerActor !== undefined && currentMarkerActor !== actorKey)
+    if (currentMarkerActor !== undefined && currentMarkerActor !== actorKey) {
       delete nextActors[currentMarkerActor];
+      delete nextOwners[currentMarkerActor];
+      delete nextLocalOnly[currentMarkerActor];
+    }
     nextMarkers[mark.marker] = actorKey;
     nextActors[actorKey] = mark.marker;
+    if (ownerKey === undefined)
+      delete nextOwners[actorKey];
+    else
+      nextOwners[actorKey] = ownerKey;
+    nextLocalOnly[actorKey] = localOnly;
   }
-  data.myDmuMarkState = { markers: nextMarkers, actors: nextActors };
+  data.myDmuMarkState = {
+    markers: nextMarkers,
+    actors: nextActors,
+    owners: nextOwners,
+    localOnly: nextLocalOnly,
+  };
   return changed;
 };
 
 const myDmuSendQueueActions = (data, queue, note) => {
   const fl = myDmuFl(data);
   if (fl?.doQueueActions !== undefined) {
-    fl.doQueueActions(queue, note);
-    return;
+    return fl.doQueueActions(queue, note);
   }
-  callOverlayHandler({
+  return callOverlayHandler({
     call: 'PostNamazu',
     c: 'DoQueueActions',
     p: JSON.stringify(queue.map((item) => {
@@ -8308,14 +8352,18 @@ const myDmuValidMarkItem = (item) =>
   item?.id !== undefined && item.id !== null && `${item.id}`.length > 0 &&
   item?.marker !== undefined && item.marker !== null && `${item.marker}`.length > 0;
 
-const myDmuMarkQueue = (data, items, note) => {
+const myDmuMarkQueue = (data, items, note, ownerKey) => {
   if (!myDmuRoleOverlayConnected(data))
     return false;
-  const marks = myDmuChangedMarks(data, items.filter(myDmuValidMarkItem));
-  if (marks.length === 0)
+  const validMarks = items.filter(myDmuValidMarkItem);
+  if (validMarks.length === 0)
     return false;
-
+  const previousState = myDmuSnapshotMarkState(data);
   const localOnly = myDmuMarkLocalOnly(data);
+  const marks = myDmuChangedMarks(data, validMarks, ownerKey, localOnly);
+  if (marks.length === 0)
+    return true;
+
   const queue = marks.map((item) => ({
     c: 'mark',
     p: {
@@ -8325,67 +8373,136 @@ const myDmuMarkQueue = (data, items, note) => {
     },
     d: 0,
   }));
-  myDmuSendQueueActions(data, queue, note);
-  return true;
+  try {
+    if (myDmuSendQueueActions(data, queue, note) === false) {
+      data.myDmuMarkState = previousState;
+      return false;
+    }
+    return true;
+  } catch (error) {
+    data.myDmuMarkState = previousState;
+    throw error;
+  }
 };
 
-const myDmuFastMarkQueue = (data, items, note) => {
-  if (!myDmuRoleOverlayConnected(data))
-    return false;
-  const marks = myDmuChangedMarks(data, items.filter(myDmuValidMarkItem));
-  if (marks.length === 0)
-    return false;
-
-  const localOnly = myDmuMarkLocalOnly(data);
-  const queue = marks.map((item) => ({
-    c: 'mark',
-    p: {
-      ActorID: item.id,
-      MarkType: item.marker,
-      LocalOnly: localOnly,
-    },
-    d: 0,
-  }));
-  myDmuSendQueueActions(data, queue, note);
-  return true;
+const myDmuFastMarkQueue = (data, items, note, ownerKey) => {
+  return myDmuMarkQueue(data, items, note, ownerKey);
 };
 
 const myDmuForgetMarkState = (data, items) => {
   const state = myDmuEnsureMarkState(data);
   const nextMarkers = { ...state.markers };
   const nextActors = { ...state.actors };
+  const nextOwners = { ...state.owners };
+  const nextLocalOnly = { ...state.localOnly };
   for (const item of items) {
     if (!myDmuValidMarkItem(item))
       continue;
     const actorKey = myDmuMarkActorKey(item.id);
-    if (nextActors[actorKey] === item.marker)
+    if (nextActors[actorKey] === item.marker) {
       delete nextActors[actorKey];
+      delete nextOwners[actorKey];
+      delete nextLocalOnly[actorKey];
+    }
     if (nextMarkers[item.marker] === actorKey)
       delete nextMarkers[item.marker];
   }
-  data.myDmuMarkState = { markers: nextMarkers, actors: nextActors };
+  data.myDmuMarkState = {
+    markers: nextMarkers,
+    actors: nextActors,
+    owners: nextOwners,
+    localOnly: nextLocalOnly,
+  };
 };
 
 const myDmuClearMarkQueue = (data, items, note) => {
   const marks = items.filter(myDmuValidMarkItem);
   if (marks.length === 0)
-    return;
+    return false;
 
+  const previousState = myDmuSnapshotMarkState(data);
   myDmuForgetMarkState(data, marks);
-  const localOnly = myDmuMarkLocalOnly(data);
+  const fallbackLocalOnly = myDmuMarkLocalOnly(data);
   const queue = marks.map((item) => ({
     c: 'mark',
     p: {
       ActorID: item.id,
       MarkType: item.marker,
-      LocalOnly: localOnly,
+      LocalOnly: typeof item.localOnly === 'boolean' ? item.localOnly : fallbackLocalOnly,
     },
     d: 0,
   }));
-  myDmuSendQueueActions(data, queue, note);
+  try {
+    if (myDmuSendQueueActions(data, queue, note) === false) {
+      data.myDmuMarkState = previousState;
+      return false;
+    }
+    return true;
+  } catch (error) {
+    data.myDmuMarkState = previousState;
+    throw error;
+  }
+};
+
+const myDmuOwnedMarkItems = (data, ownerKeys) => {
+  const state = myDmuEnsureMarkState(data);
+  const selectedOwners = ownerKeys === undefined ? undefined : new Set(ownerKeys);
+  return Object.entries(state.actors).flatMap(([actorKey, marker]) => {
+    const ownerKey = state.owners[actorKey];
+    if ((selectedOwners !== undefined &&
+          (ownerKey === undefined || !selectedOwners.has(ownerKey))) ||
+        state.markers[marker] !== actorKey)
+      return [];
+    return [{ id: actorKey, marker: marker, localOnly: state.localOnly[actorKey] }];
+  });
+};
+
+const myDmuClearOwnedMarks = (data, ownerKeys, note) => {
+  const owned = myDmuOwnedMarkItems(data, ownerKeys);
+  if (owned.length === 0)
+    return false;
+  return myDmuClearMarkQueue(data, owned, note);
+};
+
+const myDmuConfigStateBoolean = (value) =>
+  value === true || value === 'true' || value === '开' || value === '本地';
+
+const myDmuConfigStateHas = (config, key) =>
+  Object.prototype.hasOwnProperty.call(config, key);
+
+const myDmuHandleMarkConfigChanged = (event) => {
+  const data = myDmuTaskLifecycleRegistry.currentData;
+  const config = event?.state?.config;
+  if (data === undefined || config === null || typeof config !== 'object')
+    return false;
+
+  if (myDmuConfigStateHas(config, 'MyDMU_AutoMarkV5') &&
+      !myDmuConfigStateBoolean(config.MyDMU_AutoMarkV5)) {
+    return myDmuClearOwnedMarks(
+      data,
+      undefined,
+      '绝妖星 配置关闭 MyDMU_AutoMarkV5',
+    );
+  }
+
+  const disabledOwners = myDmuMarkConfigKeys.filter((key) =>
+    myDmuConfigStateHas(config, key) && !myDmuConfigStateBoolean(config[key]));
+  if (disabledOwners.length === 0)
+    return false;
+  return myDmuClearOwnedMarks(
+    data,
+    disabledOwners,
+    `绝妖星 配置关闭 ${disabledOwners.join(',')}`,
+  );
 };
 
 const myDmuClearMarks = (data) => {
+  const owned = myDmuOwnedMarkItems(data);
+  if (owned.length > 0) {
+    if (myDmuClearMarkQueue(data, owned, '绝妖星 清理已有 String 标点'))
+      data.myDmuMarkState = myDmuNewMarkState();
+    return;
+  }
   data.myDmuMarkState = myDmuNewMarkState();
   if (!myDmuAnyMarkEnabled(data))
     return;
@@ -9316,7 +9433,13 @@ const myDmuApplyP2Round = (data, round) => {
   if (data.myDmuP2AppliedRoundSignatures?.[round] === signature)
     return true;
 
-  myDmuFastMarkQueue(data, desired, `绝妖星 P2 八轮塔 ${round}`);
+  if (!myDmuFastMarkQueue(
+    data,
+    desired,
+    `绝妖星 P2 八轮塔 ${round}`,
+    'MyDMU_P2TowerMarkV3',
+  ))
+    return rendered || endRendered;
   data.myDmuP2AppliedRounds[round] = true;
   data.myDmuP2AppliedRoundSignatures[round] = signature;
   return true;
@@ -9590,7 +9713,8 @@ const myDmuApplyP3MahjongMarkers = (data) => {
   if (state.markSignature === signature)
     return true;
 
-  myDmuMarkQueue(data, desired, '绝妖星 P3 麻将');
+  if (!myDmuMarkQueue(data, desired, '绝妖星 P3 麻将', 'MyDMU_P3MahjongMarkV3'))
+    return false;
   state.marked = true;
   state.markSignature = signature;
   return true;
@@ -9727,7 +9851,8 @@ const myDmuTryApplyP3TargetMarkers = (data) => {
   myDmuSortTargetEntries(state.third, thirdOrder)
     .forEach((entry, index) => desired.push({ id: entry.id, marker: ['stop1', 'stop2'][index] }));
 
-  myDmuMarkQueue(data, desired, '绝妖星 P3 一二三目标');
+  if (!myDmuMarkQueue(data, desired, '绝妖星 P3 一二三目标', 'MyDMU_P3TargetMarkV3'))
+    return false;
   state.marked = true;
   return true;
 };
@@ -10740,8 +10865,6 @@ const myDmuP4PickKindMarkers = (data, kind, desired) => {
       skipped.push(item);
       continue;
     }
-    if (oldKind !== undefined && oldKind !== kind)
-      myDmuP4DropKindAssignmentForActor(data, oldKind, actorKey);
     markers.push(item);
   }
   return { markers, skipped };
@@ -10755,9 +10878,16 @@ const myDmuP4SetKindMarkers = (data, kind, desired, note) => {
   const { markers, skipped } = myDmuP4PickKindMarkers(data, kind, desired);
   if (markers.length === 0 && skipped.length === 0)
     return false;
-  if (markers.length > 0)
-    myDmuMarkQueue(data, markers, note);
+  if (markers.length > 0 &&
+      !myDmuMarkQueue(data, markers, note, 'MyDMU_P4BuffMarkV3'))
+    return false;
   data.myDmuP4.markAppliedAt ??= {};
+  for (const item of markers) {
+    const actorKey = myDmuMarkActorKey(item.id);
+    const oldKind = data.myDmuP4.markActorKinds[actorKey];
+    if (oldKind !== undefined && oldKind !== kind)
+      myDmuP4DropKindAssignmentForActor(data, oldKind, actorKey);
+  }
   data.myDmuP4.markAssignments[kind] = markers.map((item) => ({ ...item }));
   for (const item of markers) {
     const actorKey = myDmuMarkActorKey(item.id);
@@ -10778,8 +10908,9 @@ const myDmuP4ClearKind = (data, kind, reason) => {
     return data.myDmuP4.markActorKinds[actorKey] === kind &&
       data.myDmuP4.markActorMarkers[actorKey] === item.marker;
   });
-  if (owned.length > 0)
-    myDmuClearMarkQueue(data, owned, `绝妖星 P4 清除 ${kind} ${reason ?? ''}`);
+  if (owned.length > 0 &&
+      !myDmuClearMarkQueue(data, owned, `绝妖星 P4 清除 ${kind} ${reason ?? ''}`))
+    return false;
   for (const item of owned) {
     const actorKey = myDmuMarkActorKey(item.id);
     delete data.myDmuP4.markActorKinds[actorKey];

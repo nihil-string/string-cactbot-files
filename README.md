@@ -26,7 +26,7 @@ https://github.com/nihil-string/string-cactbot-files/raw/main/StringDownloader.z
 
 如果旧版下崽器提示“私人仓库需要 token”或无法更新，需要先关闭 ACT，手动替换为这里的新版 DLL，再重新打开 ACT。
 
-当前发布基线为 Controller `0.8.32.0`、内嵌 Native `0.4.9-native`、认证 wire v5。替换 DLL 后必须重启 ACT，单独重载 Raidboss 不会更新插件。
+当前发布基线为 Controller `0.8.33.0`、内嵌 Native `0.4.10-native`、认证 wire v5。替换 DLL 后必须重启 ACT，单独重载 Raidboss 不会更新插件。
 
 插件页的“检查下崽器更新”会先校验 manifest、版本和 SHA-256；下载成功后在 ACT 正常退出时替换 DLL，下次启动生效。
 

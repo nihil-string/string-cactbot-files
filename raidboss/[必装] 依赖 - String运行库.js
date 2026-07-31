@@ -82,30 +82,14 @@
   const dpsJobs = [2, 4, 5, 7, 20, 22, 23, 25, 26, 27, 29, 30, 31, 34, 35, 36, 38, 39, 41, 42];
   const roleOverlayRoles = Object.freeze(['MT', 'ST', 'H1', 'H2', 'D1', 'D2', 'D3', 'D4']);
   const roleOverlayLeaseMilliseconds = 4000;
-  const defaultJobSort = [
-    21, // WAR
-    32, // DRK
-    37, // GNB
-    19, // PLD
-    33, // AST
-    24, // WHM
-    40, // SGE
-    28, // SCH
-    41, // VPR
-    34, // SAM
-    30, // NIN
-    39, // RPR
-    22, // DRG
-    20, // MNK
-    38, // DNC
-    23, // BRD
-    31, // MCH
-    42, // PCT
-    25, // BLM
-    27, // SMN
-    35, // RDM
-    36, // BLU
-  ];
+  const tankJobPriority = [21, 32, 37, 19, 3, 1];
+  const healerJobPriority = [24, 33, 40, 28, 6];
+  const meleeJobPriority = [34, 20, 39, 22, 41, 30, 2, 4, 29];
+  const physicalRangedJobPriority = [31, 23, 38, 5];
+  const casterJobPriority = [42, 27, 35, 25, 36, 7, 26];
+  const meleeJobs = new Set(meleeJobPriority);
+  const physicalRangedJobs = new Set(physicalRangedJobPriority);
+  const casterJobs = new Set(casterJobPriority);
   const jobNameById = Object.freeze({
     1: 'GLA',
     2: 'PGL',
@@ -248,29 +232,74 @@
       isValidRoleOverlayParty(roleOverlayParty);
   };
 
+  const sortByJobPriority = (members, priority) => {
+    const scoreByJob = new Map(priority.map((job, index) => [job, index]));
+    return members
+      .map((member, index) => ({ member, index }))
+      .sort((left, right) => {
+        const leftScore = scoreByJob.get(Number(left.member.job)) ?? 999;
+        const rightScore = scoreByJob.get(Number(right.member.job)) ?? 999;
+        return leftScore - rightScore || left.index - right.index;
+      })
+      .map(({ member }) => member);
+  };
+
+  const assignPreferredRoles = (members, preferredRoles, priority, occupiedMembers = members) => {
+    const sorted = sortByJobPriority(members, priority);
+    for (const role of preferredRoles) {
+      if (occupiedMembers.some((member) => member.stringRP === role))
+        continue;
+      const member = sorted.find((candidate) => candidate.stringRP === undefined);
+      if (member !== undefined)
+        member.stringRP = role;
+    }
+  };
+
   const defaultSort = () => {
     const tankRoles = ['MT', 'ST', ...createRoleArray('T', 14)];
     const healerRoles = createRoleArray('H', 16);
     const dpsRoles = createRoleArray('D', 16);
-    let tankIndex = 0;
-    let healerIndex = 0;
-    let dpsIndex = 0;
 
-    stringParty.sort((a, b) => {
-      const left = defaultJobSort.indexOf(Number(a.job));
-      const right = defaultJobSort.indexOf(Number(b.job));
-      return (left < 0 ? 999 : left) - (right < 0 ? 999 : right);
-    });
+    for (const member of stringParty)
+      member.stringRP = undefined;
+    const tanks = stringParty.filter((member) => tankJobs.includes(Number(member.job)));
+    const healers = stringParty.filter((member) => healerJobs.includes(Number(member.job)));
+    const dps = stringParty.filter((member) => dpsJobs.includes(Number(member.job)));
+    assignPreferredRoles(tanks, tankRoles, tankJobPriority);
+    assignPreferredRoles(healers, healerRoles, healerJobPriority);
+
+    const casterCount = dps.filter((member) => casterJobs.has(Number(member.job))).length;
+    if (casterCount >= 2) {
+      const blackMage = dps.find((member) => Number(member.job) === 25);
+      if (blackMage !== undefined)
+        blackMage.stringRP = 'D2';
+    }
+    assignPreferredRoles(
+      dps.filter((member) => meleeJobs.has(Number(member.job))),
+      ['D1', 'D2'],
+      meleeJobPriority,
+      dps,
+    );
+    assignPreferredRoles(
+      dps.filter((member) => physicalRangedJobs.has(Number(member.job))),
+      ['D3'],
+      physicalRangedJobPriority,
+      dps,
+    );
+    assignPreferredRoles(
+      dps.filter((member) => casterJobs.has(Number(member.job))),
+      ['D4'],
+      casterJobPriority,
+      dps,
+    );
+    assignPreferredRoles(dps, dpsRoles, [
+      ...meleeJobPriority,
+      ...physicalRangedJobPriority,
+      ...casterJobPriority,
+    ]);
 
     for (const member of stringParty) {
-      const job = Number(member.job);
-      if (tankJobs.includes(job))
-        member.stringRP = tankRoles[tankIndex++] ?? 'unknown';
-      else if (healerJobs.includes(job))
-        member.stringRP = healerRoles[healerIndex++] ?? 'unknown';
-      else if (dpsJobs.includes(job))
-        member.stringRP = dpsRoles[dpsIndex++] ?? 'unknown';
-      else
+      if (member.stringRP === undefined)
         member.stringRP = 'unknown';
     }
   };
