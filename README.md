@@ -26,9 +26,9 @@ https://github.com/nihil-string/string-cactbot-files/raw/main/StringDownloader.z
 
 如果旧版下崽器提示“私人仓库需要 token”或无法更新，需要先关闭 ACT，手动替换为这里的新版 DLL，再重新打开 ACT。
 
-当前发布基线为 Controller `0.8.33.0`、内嵌 Native `0.4.10-native`、认证 wire v5。替换 DLL 后必须重启 ACT，单独重载 Raidboss 不会更新插件。
+当前发布基线为 Controller `0.8.34.0`、内嵌 Native `0.4.10-native`、认证 wire v5。替换 DLL 后必须重启 ACT，单独重载 Raidboss 不会更新插件。
 
-插件页的“检查下崽器更新”会先校验 manifest、版本和 SHA-256；下载成功后在 ACT 正常退出时替换 DLL，下次启动生效。
+插件页的“检查下崽器更新”会先校验 manifest、版本和 SHA-256；下载成功后在 ACT 正常退出时替换 DLL，下次启动生效。新安装默认开启 ACT 启动自动更新；`0.8.34.0` 会把旧设置一次性迁移为开启，迁移后仍尊重用户手动关闭。
 
 ## 手动安装
 
@@ -47,6 +47,8 @@ D:\ACT\NewMoe-Technology\ACT.DieMoe\Plugins\ACT.OverlayPlugin\cactbot\user\raidb
 ```text
 https://nihil-string.github.io/string-runtime-overlay/
 ```
+
+战斗中可以继续调整职能、方案和优先级；修改应用到后续尚未结算的机制，已经发出的标记不会因后续改动而隐式重排。
 
 ## 提示输出
 

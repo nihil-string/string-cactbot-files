@@ -161,6 +161,7 @@
     zoneId: 0,
     zoneName: '',
     inEncounter: false,
+    inCombat: false,
     confirmed: false,
     locked: false,
     revision: 0,
@@ -3345,6 +3346,7 @@
         zoneId,
         zoneName,
         inEncounter: zoneId === dancingMadUltimateZoneId,
+        inCombat: false,
         confirmed: false,
         locked: false,
         revision: encounterState.revision + 1,
@@ -3375,6 +3377,7 @@
           zoneId,
           zoneName,
           inEncounter: zoneId === dancingMadUltimateZoneId,
+          inCombat: false,
           confirmed: false,
           locked: false,
           revision: encounterState.revision + 1,
@@ -6039,6 +6042,7 @@
       return encounterState;
     const nextState = {
       ...state,
+      inCombat: state.inCombat === true,
       config: { ...safeEncounterConfig, ...state.config },
     };
     const disabledVfx = vfxEnableConfigKeys.some((key) =>
@@ -6124,6 +6128,7 @@
         syncEncounterState({
           zoneId,
           inEncounter: true,
+          inCombat: false,
           confirmed: false,
           locked: false,
           revision: encounterState.revision + 1,
@@ -6148,7 +6153,7 @@
     try {
       await callStringConfig('setCombat', { inCombat });
     } catch (error) {
-      console.warn('String 本次设置战斗锁定同步失败', error);
+      console.warn('String 本次设置战斗状态同步失败', error);
     }
   };
 
