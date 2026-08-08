@@ -1035,10 +1035,22 @@ const myDmuClearCachedSpeech = (data, key) => {
     delete data.myDmuSpeech[key];
 };
 
+const myDmuSpeakText = (text) => {
+  if (text === undefined || text === null || text === '')
+    return;
+  if (typeof callOverlayHandler !== 'function')
+    return;
+  const result = callOverlayHandler({ call: 'cactbotSay', text: text });
+  result?.catch?.((error) => {
+    console.warn(`[String][DMU] cactbotSay 播报失败：${error}`);
+  });
+};
+
 const myDmuSpeakCached = (data, key) => {
   const text = data.myDmuSpeech?.[key];
   if (data.myDmuSpeech !== undefined)
     delete data.myDmuSpeech[key];
+  myDmuSpeakText(text);
   return text;
 };
 
