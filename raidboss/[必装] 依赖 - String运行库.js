@@ -7,6 +7,7 @@
     MyDMU_AutoMarkV5: false,
     MyDMU_LocalMarkV3: false,
     MyDMU_PartyChatEnabled: false,
+    MyDMU_VoiceCalloutV2: false,
     MyDMU_StringNativeVfx: false,
     MyDMU_StringNativeVfxP1: false,
     MyDMU_StringNativeVfxP2: false,

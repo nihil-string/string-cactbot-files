@@ -795,6 +795,9 @@ const myDmuAnyMarkEnabled = (data) =>
 const myDmuP1CalloutEnabled = (data) =>
   data.myDmuPhase === 'p1' && myDmuBooleanConfig(data, 'MyDMU_P1Callout', true);
 
+const myDmuVoiceCalloutEnabled = (data) =>
+  myDmuBooleanConfig(data, 'MyDMU_VoiceCalloutV2', false);
+
 const myDmuP5CalloutEnabled = (data) =>
   data.myDmuPhase === 'p5' && myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true);
 
@@ -1035,7 +1038,9 @@ const myDmuClearCachedSpeech = (data, key) => {
     delete data.myDmuSpeech[key];
 };
 
-const myDmuSpeakText = (text) => {
+const myDmuSpeakText = (data, text) => {
+  if (!myDmuVoiceCalloutEnabled(data))
+    return;
   if (text === undefined || text === null || text === '')
     return;
   if (typeof callOverlayHandler !== 'function')
@@ -1050,7 +1055,7 @@ const myDmuSpeakCached = (data, key) => {
   const text = data.myDmuSpeech?.[key];
   if (data.myDmuSpeech !== undefined)
     delete data.myDmuSpeech[key];
-  myDmuSpeakText(text);
+  myDmuSpeakText(data, text);
   return text;
 };
 
