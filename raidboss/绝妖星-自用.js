@@ -5660,6 +5660,18 @@ const myDmuRegisterLifecycleListeners = () => {
     myDmuBeginLifecycleCleanup(current, reason);
   };
   if (typeof addOverlayListener === 'function') {
+    addOverlayListener('BroadcastMessage', (event) => {
+      const message = event?.detail ?? event;
+      if (message?.source !== 'stringRuntimeJS' || !Array.isArray(message.msg?.party) ||
+          message.msg.party.length === 0)
+        return;
+      const current = myDmuTaskLifecycleRegistry.currentData;
+      if (current?.myDmuPhase !== 'p4' ||
+          !myDmuMarkConfigured(current, 'MyDMU_P4BuffMarkV3'))
+        return;
+      myDmuRetryAction(current, 'p4-mark-timing', () =>
+        myDmuProcessP4MarkTiming(current, 'role-overlay-broadcast'), 12, 250);
+    });
     addOverlayListener('ChangeZone', (event) => {
       if (Number(event?.zoneID) !== 1363)
         cleanup('zone-change');
@@ -8087,7 +8099,12 @@ const myDmuRolePriority = (role, order = myDmuRoleOrder) => {
   return index < 0 ? 99 : index;
 };
 
-const myDmuRoleGroup = (role) => role?.startsWith('D') ? 'DPS' : 'TN';
+const myDmuRoleGroup = (role) => {
+  const normalized = myDmuNormalizeRp(role);
+  if (normalized === undefined)
+    return undefined;
+  return normalized.startsWith('D') ? 'DPS' : 'TN';
+};
 
 const myDmuNormalizeRp = (role) => myDmuRoleOrder.includes(role) ? role : undefined;
 
@@ -8180,6 +8197,12 @@ const myDmuDefaultRpByName = (data, name) => {
 
 const myDmuGetRpByName = (data, name) =>
   myDmuNormalizeRp(myDmuFl(data)?.getRpByName?.(data, name)) ?? myDmuDefaultRpByName(data, name);
+
+const myDmuGetStrictRpByActor = (data, actorId, name) => {
+  const fl = myDmuFl(data);
+  return myDmuNormalizeRp(fl?.getRpByHexId?.(data, actorId)) ??
+    myDmuNormalizeRp(fl?.getRpByName?.(data, name));
+};
 
 const myDmuGetHexIdByName = (data, name) => {
   const fl = myDmuFl(data);
@@ -8504,13 +8527,24 @@ const myDmuHandleMarkConfigChanged = (event) => {
 
   const disabledOwners = myDmuMarkConfigKeys.filter((key) =>
     myDmuConfigStateHas(config, key) && !myDmuConfigStateBoolean(config[key]));
-  if (disabledOwners.length === 0)
+  if (disabledOwners.length > 0) {
+    return myDmuClearOwnedMarks(
+      data,
+      disabledOwners,
+      `绝妖星 配置关闭 ${disabledOwners.join(',')}`,
+    );
+  }
+
+  const autoMarkEnabled = myDmuConfigStateHas(config, 'MyDMU_AutoMarkV5')
+    ? myDmuConfigStateBoolean(config.MyDMU_AutoMarkV5)
+    : myDmuAutoMarkEnabled(data);
+  const p4MarkEnabled = myDmuConfigStateHas(config, 'MyDMU_P4BuffMarkV3')
+    ? myDmuConfigStateBoolean(config.MyDMU_P4BuffMarkV3)
+    : myDmuBooleanConfig(data, 'MyDMU_P4BuffMarkV3', false);
+  if (data.myDmuPhase !== 'p4' || !autoMarkEnabled || !p4MarkEnabled)
     return false;
-  return myDmuClearOwnedMarks(
-    data,
-    disabledOwners,
-    `绝妖星 配置关闭 ${disabledOwners.join(',')}`,
-  );
+  return myDmuRetryAction(data, 'p4-mark-timing', () =>
+    myDmuProcessP4MarkTiming(data, 'config-enabled'), 12, 250);
 };
 
 const myDmuClearMarks = (data) => {
@@ -9940,6 +9974,18 @@ const myDmuP4RecordsFor = (data, buffIds) => {
   return records.sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role));
 };
 
+const myDmuP4RefreshRecordRoles = (data) => {
+  let complete = true;
+  for (const rec of data.myDmuP4.buffRecords ?? []) {
+    const role = myDmuGetStrictRpByActor(data, rec.id, rec.name);
+    rec.role = role;
+    rec.group = myDmuRoleGroup(role);
+    if (role === undefined || rec.group === undefined)
+      complete = false;
+  }
+  return complete;
+};
+
 const myDmuP4RecordForEvent = (data, targetId, buffId, duration) => {
   const normalizedTargetId = myDmuNormalizeActorId(targetId);
   let candidates = (data.myDmuP4.buffRecords ?? [])
@@ -11048,8 +11094,11 @@ const myDmuP4TransitionElementToPetrify = (data, round, reason) => {
 };
 
 function myDmuProcessP4MarkTiming(data, source = 'process') {
-  if (data.myDmuPhase !== 'p4' || !myDmuMarkEnabled(data, 'MyDMU_P4BuffMarkV3'))
+  if (data.myDmuPhase !== 'p4' || myDmuArrReplayActive(data) ||
+      !myDmuMarkConfigured(data, 'MyDMU_P4BuffMarkV3'))
     return true;
+  if (!myDmuRoleOverlayConnected(data) || !myDmuP4RefreshRecordRoles(data))
+    return false;
 
   if (!data.myDmuP4.elementMarked.short && !data.myDmuP4.elementCleared.short)
     return myDmuApplyP4ElementRound(data, 'short');

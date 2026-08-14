@@ -334,7 +334,9 @@
     }
 
     for (const member of stringParty) {
-      member.stringRP = externalPartyRp.find((record) => record.id === member.id)?.rp ?? 'unknown';
+      const id = normalizePartyId(member.id);
+      member.stringRP = externalPartyRp.find((record) =>
+        normalizePartyId(record.id) === id)?.rp?.toString().trim().toUpperCase() ?? 'unknown';
     }
   };
 
@@ -375,7 +377,13 @@
     return id === undefined ? undefined : Number.parseInt(id, 16);
   };
 
-  const getRpByHexId = (data, hexId) => getRpByName(data, getNameByHexId(data, hexId));
+  const getRpByHexId = (data, hexId) => {
+    ensureParty(data);
+    const id = normalizePartyId(hexId);
+    if (id === '')
+      return undefined;
+    return stringParty.find((member) => normalizePartyId(member.id) === id)?.stringRP;
+  };
 
   const getRpById = (data, id) => getRpByHexId(data, Number(id).toString(16));
 
