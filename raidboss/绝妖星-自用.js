@@ -2533,7 +2533,7 @@ const myDmuP2FarIntersection = (origin, heading, center, radius) => {
 
 const myDmuP2TowerPair = (data, round) => {
   const sourceRound = Math.max(1, round - 1);
-  const points = data.myDmuP2TowerRounds?.[sourceRound]?.points;
+  const points = myDmuP2TowerRoundPoints(data, sourceRound);
   if (!Array.isArray(points) || points.length < 2)
     throw new Error(`P2 第${round}轮缺少双塔坐标`);
   const axis = myDmuP2TowerAxis(data, sourceRound);
@@ -2706,7 +2706,7 @@ const myDmuBuildP2TowerVfx = (vfx, data, round) => {
 
 const myDmuP2EndTowerPoints = (data) => {
   const strategy = myDmuP2EndTowerStrategy(data);
-  const points = data.myDmuP2TowerRounds?.[8]?.points;
+  const points = myDmuP2TowerRoundPoints(data, 8);
   if (strategy === undefined || !Array.isArray(points) || points.length !== 2 ||
       points.some((point) => !Number.isFinite(point?.x) || !Number.isFinite(point?.z)))
     return undefined;
@@ -8528,7 +8528,7 @@ const myDmuHandleMarkConfigChanged = (event) => {
   const disabledOwners = myDmuMarkConfigKeys.filter((key) =>
     myDmuConfigStateHas(config, key) && !myDmuConfigStateBoolean(config[key]));
   if (disabledOwners.length > 0) {
-    return myDmuClearOwnedMarks(
+    myDmuClearOwnedMarks(
       data,
       disabledOwners,
       `绝妖星 配置关闭 ${disabledOwners.join(',')}`,
@@ -8578,9 +8578,14 @@ const myDmuClearMarks = (data) => {
   });
 };
 
+const myDmuCancelScheduledClearMarks = (data, key) => {
+  myDmuCancelOwnedTask(data, `marks:clear:${key}`);
+  delete data.myDmuClearMarkTimers?.[key];
+};
+
 const myDmuScheduleClearMarks = (data, key, delaySeconds = 0.5, condition = () => true) => {
   data.myDmuClearMarkTimers ??= {};
-  myDmuCancelOwnedTask(data, `marks:clear:${key}`);
+  myDmuCancelScheduledClearMarks(data, key);
   data.myDmuClearMarkTimers[key] = myDmuScheduleOwnedTask(
     data,
     `marks:clear:${key}`,
@@ -8661,6 +8666,10 @@ const myDmuResetP2 = (data) => {
   data.myDmuP2TowerCurrentRound = undefined;
   data.myDmuP2TowerLastAt = undefined;
   data.myDmuP2TowerRounds = {};
+  data.myDmuP2TowerAbilityRoundCount = 0;
+  data.myDmuP2TowerAbilityCurrentRound = undefined;
+  data.myDmuP2TowerAbilityLastAt = undefined;
+  data.myDmuP2TowerAbilityRounds = {};
   data.myDmuP2TowerFallbackLogs = {};
   data.myDmuP2TowerDecisionLogs = {};
   data.myDmuNativeVfxNpcBaseIdByActor = {};
@@ -8895,6 +8904,10 @@ const myDmuInitState = () => {
     myDmuP2TowerCurrentRound: undefined,
     myDmuP2TowerLastAt: undefined,
     myDmuP2TowerRounds: {},
+    myDmuP2TowerAbilityRoundCount: 0,
+    myDmuP2TowerAbilityCurrentRound: undefined,
+    myDmuP2TowerAbilityLastAt: undefined,
+    myDmuP2TowerAbilityRounds: {},
     myDmuP2TowerFallbackLogs: {},
     myDmuP2TowerDecisionLogs: {},
     myDmuP3Mahjong: {
@@ -8971,11 +8984,13 @@ const myDmuP2CombatantPoint = (combatant) => {
 const myDmuP2RecordAbilityPosition = (data, matches) => {
   const x = Number(matches.targetX);
   const z = Number(matches.targetY);
-  if (matches.targetId === undefined || !Number.isFinite(x) || !Number.isFinite(z))
-    return false;
-  data.myDmuP2CombatantPositions ??= {};
-  data.myDmuP2CombatantPositions[myDmuP2ActorKey(matches.targetId)] = { x, z };
-  return true;
+  let recorded = false;
+  if (matches.targetId !== undefined && Number.isFinite(x) && Number.isFinite(z)) {
+    data.myDmuP2CombatantPositions ??= {};
+    data.myDmuP2CombatantPositions[myDmuP2ActorKey(matches.targetId)] = { x, z };
+    recorded = true;
+  }
+  return myDmuP2RecordTowerAbilityPosition(data, matches) || recorded;
 };
 
 const myDmuP2RememberCombatantPosition = async (data, targetId) => {
@@ -9016,6 +9031,87 @@ const myDmuP2TowerLocationKey = (location) => {
   return value.toString(16).toUpperCase().padStart(2, '0');
 };
 
+const myDmuP2TowerRoundPoints = (data, round) => {
+  const mapEffectPoints = data.myDmuP2TowerRounds?.[round]?.points;
+  if (Array.isArray(mapEffectPoints) && mapEffectPoints.length >= 2)
+    return mapEffectPoints;
+  const abilityPoints = data.myDmuP2TowerAbilityRounds?.[round]?.points;
+  return Array.isArray(abilityPoints) && abilityPoints.length >= 2 ? abilityPoints : undefined;
+};
+
+const myDmuP2TowerRoundSource = (data, round) =>
+  (data.myDmuP2TowerRounds?.[round]?.points?.length ?? 0) >= 2 ? 'map-effect' :
+    (data.myDmuP2TowerAbilityRounds?.[round]?.points?.length ?? 0) >= 2 ? 'ability' : 'missing';
+
+const myDmuP2TowerPointFromAbility = (matches) => {
+  const x = Number(matches.x);
+  const z = Number(matches.y);
+  if (!Number.isFinite(x) || !Number.isFinite(z))
+    return undefined;
+
+  let nearest;
+  let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+  for (const [location, point] of Object.entries(myDmuP2TowerPoints)) {
+    const distanceSquared = (point.x - x) ** 2 + (point.z - z) ** 2;
+    if (distanceSquared >= nearestDistanceSquared)
+      continue;
+    nearest = { ...point, location };
+    nearestDistanceSquared = distanceSquared;
+  }
+  // BABE 的来源实体应位于八个固定塔点；偏离过大时拒绝把异常坐标当成塔位。
+  return nearestDistanceSquared <= 0.25 ? nearest : undefined;
+};
+
+const myDmuP2RetryFromTowerRound = (data, round, reason) => {
+  if (round === 8)
+    myDmuRenderP2EndTowerGuide(data, reason);
+  if (round === 1 && myDmuP2RoundReadyForMapRetry(data, 1))
+    myDmuApplyP2Round(data, 1);
+  const targetRound = round + 1;
+  if (targetRound > 8 || !myDmuP2RoundReadyForMapRetry(data, targetRound))
+    return;
+  myDmuP2RecordPointSlots(data, targetRound);
+  myDmuApplyP2Round(data, targetRound);
+};
+
+const myDmuP2RecordTowerAbilityPosition = (data, matches) => {
+  const point = myDmuP2TowerPointFromAbility(matches);
+  const sourceId = myDmuNormalizeActorId(matches.sourceId);
+  if (point === undefined || sourceId === undefined)
+    return false;
+
+  const now = myDmuNativeVfxEventMilliseconds(matches);
+  data.myDmuP2TowerAbilityRounds ??= {};
+  let round = data.myDmuP2TowerAbilityCurrentRound;
+  let current = round === undefined ? undefined : data.myDmuP2TowerAbilityRounds[round];
+  if (
+    current === undefined ||
+    (data.myDmuP2TowerAbilityLastAt !== undefined && now - data.myDmuP2TowerAbilityLastAt > 1500)
+  ) {
+    round = (data.myDmuP2TowerAbilityRoundCount ?? 0) + 1;
+    if (round > 8)
+      return false;
+    data.myDmuP2TowerAbilityRoundCount = round;
+    data.myDmuP2TowerAbilityCurrentRound = round;
+    current = { round, startedAt: now, bySourceId: {}, byLocation: {}, points: [] };
+    data.myDmuP2TowerAbilityRounds[round] = current;
+  }
+  data.myDmuP2TowerAbilityLastAt = now;
+
+  if (current.bySourceId[sourceId] !== undefined)
+    return true;
+  current.bySourceId[sourceId] = point.location;
+  if (current.byLocation[point.location] !== undefined)
+    return true;
+  current.byLocation[point.location] = point;
+  current.points.push(point);
+  current.points.sort((left, right) => left.index - right.index);
+
+  if (current.points.length === 2)
+    myDmuP2RetryFromTowerRound(data, round, 'round-8-ability-positions');
+  return true;
+};
+
 const myDmuP2LogFallback = (data, round, reason) => {
   data.myDmuP2TowerFallbackLogs ??= {};
   const key = `${round}:${reason}`;
@@ -9032,7 +9128,11 @@ const myDmuP2LogDecision = (data, round, mode) => {
     return;
   data.myDmuP2TowerDecisionLogs[key] = true;
   const sourceRound = Math.max(1, round - 1);
-  console.log(`[String][P2TowerLR] round=${round} mode=${mode} sourceRound=${sourceRound} towers=${myDmuP2TowerPointSummary(data, sourceRound)}`);
+  console.log(
+    `[String][P2TowerLR] round=${round} mode=${mode} sourceRound=${sourceRound} ` +
+    `towerSource=${myDmuP2TowerRoundSource(data, sourceRound)} ` +
+    `towers=${myDmuP2TowerPointSummary(data, sourceRound)}`,
+  );
 };
 
 const myDmuP2RoundReadyForMapRetry = (data, round) => {
@@ -9074,17 +9174,8 @@ const myDmuP2RecordTowerMapEffect = (data, matches) => {
   current.points.push(current.byLocation[location]);
   current.points.sort((left, right) => left.index - right.index);
 
-  if (current.points.length >= 2) {
-    if (round === 8)
-      myDmuRenderP2EndTowerGuide(data, 'round-8-map-effects');
-    if (round === 1 && myDmuP2RoundReadyForMapRetry(data, 1))
-      myDmuApplyP2Round(data, 1);
-    const targetRound = round + 1;
-    if (targetRound <= 8 && myDmuP2RoundReadyForMapRetry(data, targetRound)) {
-      myDmuP2RecordPointSlots(data, targetRound);
-      myDmuApplyP2Round(data, targetRound);
-    }
-  }
+  if (current.points.length >= 2)
+    myDmuP2RetryFromTowerRound(data, round, 'round-8-map-effects');
   return true;
 };
 
@@ -9258,7 +9349,7 @@ const myDmuP2InitialBSlots = (data, entries) => {
 };
 
 const myDmuP2TowerAxis = (data, round) => {
-  const points = data.myDmuP2TowerRounds?.[round]?.points;
+  const points = myDmuP2TowerRoundPoints(data, round);
   if (points === undefined || points.length < 2)
     return undefined;
 
@@ -9289,7 +9380,7 @@ const myDmuP2TowerSide = (entry, axis) => {
 };
 
 const myDmuP2TowerPointSummary = (data, round) =>
-  (data.myDmuP2TowerRounds?.[round]?.points ?? [])
+  (myDmuP2TowerRoundPoints(data, round) ?? [])
     .map((point) => `${point.label}(${point.x.toFixed(3)},${point.z.toFixed(3)})`)
     .join('/');
 
@@ -9440,7 +9531,7 @@ const myDmuP2TowerVfxReady = (data, round) => {
   if (myDmuP2Pair2222IdleOddMode(data) === undefined || myDmuP2OddStrategy(data) === undefined)
     return false;
   const sourceRound = Math.max(1, round - 1);
-  const points = data.myDmuP2TowerRounds?.[sourceRound]?.points;
+  const points = myDmuP2TowerRoundPoints(data, sourceRound);
   if (!Array.isArray(points) || points.length < 2)
     return false;
   return myDmuP2Partition(data, round) !== undefined;
@@ -11439,6 +11530,7 @@ Options.Triggers.push({
       netRegex: { effectId: myDmuP1PoisonBuff, capture: true },
       condition: (data) => data.myDmuPhase === 'p1',
       preRun: (data, matches) => {
+        myDmuCancelScheduledClearMarks(data, 'p1Poison');
         myDmuP1RecordUniqueName(data.myDmuP1PoisonTargets, matches.target);
         data.myDmuP1PoisonTargetIds[matches.target] = matches.targetId;
         data.myDmuP1PoisonDurations[matches.target] = myDmuNumber(matches.duration) ?? 3.5;
@@ -11469,7 +11561,7 @@ Options.Triggers.push({
           }
         }
         if (data.myDmuP1PoisonTargets.length === 0 && myDmuMarkConfigured(data, 'MyDMU_P1PoisonMarkV3'))
-          myDmuScheduleClearMarks(data, 'p1Poison', 0.2, (data) =>
+          myDmuScheduleClearMarks(data, 'p1Poison', 1.2, (data) =>
             data.myDmuP1PoisonTargets.length === 0 && myDmuMarkConfigured(data, 'MyDMU_P1PoisonMarkV3'));
       },
     },
