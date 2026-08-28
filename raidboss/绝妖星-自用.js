@@ -10290,6 +10290,239 @@ const myDmuP4AccelerationResolveRecords = (data, rec) => {
   return sameResolve.length > 0 ? sameResolve : records.filter((record) => record === rec);
 };
 
+const myDmuP4SolutionMacroLineIntervalMs = 60;
+
+const myDmuP4SolutionRoleText = (records) => {
+  const roles = [...records]
+    .sort((a, b) => myDmuRolePriority(a.role) - myDmuRolePriority(b.role))
+    .map((rec) => rec.role);
+  if (roles.some((role) => !myDmuRoleOrder.includes(role)) || new Set(roles).size !== roles.length)
+    return undefined;
+  return roles.join(' ');
+};
+
+const myDmuP4SolutionEffectRounds = (records, expectedPerRound) => {
+  if (records.length !== expectedPerRound * 2)
+    return undefined;
+  const seenRoles = new Set();
+  const timed = [];
+  for (const rec of records) {
+    if (!myDmuRoleOrder.includes(rec.role) || seenRoles.has(rec.role))
+      return undefined;
+    const effectAt = myDmuP4RecordExpiresAt(rec);
+    if (effectAt === undefined)
+      return undefined;
+    seenRoles.add(rec.role);
+    timed.push({ rec, effectAt });
+  }
+  timed.sort((a, b) => a.effectAt - b.effectAt || myDmuRolePriority(a.rec.role) - myDmuRolePriority(b.rec.role));
+
+  const short = timed.slice(0, expectedPerRound);
+  const long = timed.slice(expectedPerRound);
+  const shortSpan = short.at(-1).effectAt - short[0].effectAt;
+  const longSpan = long.at(-1).effectAt - long[0].effectAt;
+  const roundGap = long[0].effectAt - short.at(-1).effectAt;
+  if (shortSpan > 7000 || longSpan > 7000 || roundGap <= 7000)
+    return undefined;
+  return [short.map((item) => item.rec), long.map((item) => item.rec)];
+};
+
+const myDmuP4SolutionAccelerationLines = (data) => {
+  const records = myDmuP4RecordsFor(data, [myDmuP4AccelerationBuff]);
+  for (const rec of records)
+    myDmuP4RefreshRecordTruth(data, rec);
+  if (records.some((rec) => rec.truth === undefined))
+    return undefined;
+  const rounds = myDmuP4SolutionEffectRounds(records, 4);
+  if (rounds === undefined)
+    return undefined;
+
+  const lines = [];
+  for (const round of rounds) {
+    const staticText = myDmuP4SolutionRoleText(round.filter((rec) => rec.truth === true));
+    const movingText = myDmuP4SolutionRoleText(round.filter((rec) => rec.truth === false));
+    if (staticText === undefined || movingText === undefined)
+      return undefined;
+    const parts = [];
+    if (staticText !== '')
+      parts.push(`停：${staticText}`);
+    if (movingText !== '')
+      parts.push(`动：${movingText}`);
+    if (parts.length === 0)
+      return undefined;
+    lines.push(`动静剑：${parts.join('，')}`);
+  }
+  return lines;
+};
+
+const myDmuP4SolutionElementLines = (data) => {
+  const records = myDmuP4RecordsFor(data, myDmuP4ElementBuffs);
+  for (const rec of records)
+    myDmuP4RefreshRecordTruth(data, rec);
+  if (records.some((rec) => rec.truth === undefined))
+    return undefined;
+  const rounds = myDmuP4SolutionEffectRounds(records, 4);
+  if (rounds === undefined)
+    return undefined;
+
+  const lines = [];
+  for (const round of rounds) {
+    const spread = round.filter((rec) => myDmuP4ElementSide(rec) === 'out');
+    const groupCounts = spread.reduce((counts, rec) => {
+      if (rec.group in counts)
+        counts[rec.group]++;
+      return counts;
+    }, { TN: 0, DPS: 0 });
+    if (spread.length !== 2 || groupCounts.TN !== 1 || groupCounts.DPS !== 1)
+      return undefined;
+    const roleText = myDmuP4SolutionRoleText(spread);
+    if (roleText === undefined)
+      return undefined;
+    lines.push(`雷分散：${roleText}`);
+  }
+  return lines;
+};
+
+const myDmuP4SolutionPetrifyLines = (data) => {
+  const records = myDmuP4RecordsFor(data, [myDmuP4PetrifyBuff]);
+  for (const rec of records)
+    myDmuP4RefreshRecordTruth(data, rec);
+  if (records.some((rec) => rec.truth === undefined))
+    return undefined;
+  const rounds = myDmuP4SolutionEffectRounds(records, 2);
+  if (rounds === undefined)
+    return undefined;
+
+  const lines = [];
+  for (const round of rounds) {
+    const truth = round[0]?.truth;
+    if (truth === undefined || round.some((rec) => rec.truth !== truth))
+      return undefined;
+    const roleText = myDmuP4SolutionRoleText(round);
+    if (roleText === undefined)
+      return undefined;
+    const prefix = truth ? '真眼，背对点名：' : '假眼，看向点名：';
+    lines.push(`石化眼：${prefix}${roleText}`);
+  }
+  return lines;
+};
+
+const myDmuP4SolutionChaosNames = (data) => {
+  const records = myDmuP4RecordsFor(data, myDmuP4ChaosBuffs);
+  if (records.length !== 16)
+    return undefined;
+  const names = [];
+  for (const buffId of myDmuP4ChaosBuffs) {
+    const round = records.filter((rec) => rec.buffId === buffId);
+    if (round.length !== 8 || myDmuP4SolutionRoleText(round) === undefined)
+      return undefined;
+    const results = new Set();
+    for (const rec of round) {
+      myDmuP4RefreshRecordTruth(data, rec);
+      const name = myDmuP4ChaosActionText(rec);
+      if (name === undefined)
+        return undefined;
+      results.add(name);
+    }
+    if (results.size !== 1)
+      return undefined;
+    names.push([...results][0]);
+  }
+  return names;
+};
+
+const myDmuBuildP4SolutionMacro = (data) => {
+  if (!myDmuP4RefreshRecordRoles(data))
+    return undefined;
+  const acceleration = myDmuP4SolutionAccelerationLines(data);
+  const element = myDmuP4SolutionElementLines(data);
+  const petrify = myDmuP4SolutionPetrifyLines(data);
+  const chaos = myDmuP4SolutionChaosNames(data);
+  if (acceleration === undefined || element === undefined || petrify === undefined || chaos === undefined)
+    return undefined;
+  return [
+    '-------------------------- 第一轮 -------------------------',
+    acceleration[0],
+    element[0],
+    petrify[0],
+    `混沌火：${chaos[0]}`,
+    '-------------------------- 第二轮 -------------------------',
+    acceleration[1],
+    element[1],
+    petrify[1],
+    `混沌水：${chaos[1]}`,
+    '-------------------------- 宏结束 -------------------------',
+  ];
+};
+
+const myDmuPumpP4SolutionMacro = (data) => {
+  const macro = data.myDmuP4.solutionMacro;
+  if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true) ||
+      macro?.lines === undefined) {
+    if (macro !== undefined)
+      macro.running = false;
+    return false;
+  }
+
+  while (macro.nextIndex < macro.lines.length &&
+      data.myDmuP4.buffChatSent[`p4-solution-${String(macro.nextIndex + 1).padStart(2, '0')}`])
+    macro.nextIndex++;
+  if (macro.nextIndex >= macro.lines.length) {
+    macro.running = false;
+    macro.complete = true;
+    return true;
+  }
+
+  const index = macro.nextIndex;
+  const key = `p4-solution-${String(index + 1).padStart(2, '0')}`;
+  myDmuSendP4BuffChat(data, key, macro.lines[index]);
+  if (!data.myDmuP4.buffChatSent[key]) {
+    macro.retryCount++;
+    if (macro.retryCount > 20) {
+      macro.running = false;
+      return false;
+    }
+    myDmuP4ScheduleTimer(data, 'solution-macro-pump', 500, () => myDmuPumpP4SolutionMacro(data));
+    return false;
+  }
+
+  macro.retryCount = 0;
+  macro.nextIndex++;
+  if (macro.nextIndex >= macro.lines.length) {
+    macro.running = false;
+    macro.complete = true;
+    return true;
+  }
+  myDmuP4ScheduleTimer(
+    data,
+    'solution-macro-pump',
+    myDmuP4SolutionMacroLineIntervalMs,
+    () => myDmuPumpP4SolutionMacro(data),
+  );
+  return true;
+};
+
+const myDmuTrySendP4SolutionMacro = (data) => {
+  if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
+    return true;
+  if (!myDmuPartyChatEnabled(data))
+    return false;
+  const macro = data.myDmuP4.solutionMacro ??= {
+    lines: undefined,
+    nextIndex: 0,
+    retryCount: 0,
+    running: false,
+    complete: false,
+  };
+  if (macro.complete || macro.running)
+    return true;
+  macro.lines ??= myDmuBuildP4SolutionMacro(data);
+  if (macro.lines === undefined)
+    return false;
+  macro.running = true;
+  return myDmuPumpP4SolutionMacro(data);
+};
+
 const myDmuP4ChaosActionText = (rec) => {
   if (rec?.truth === undefined)
     return undefined;
@@ -10661,8 +10894,8 @@ const myDmuRecordP4LateSpell = (data, matches) => {
       return true;
     st.thunderSeen = true;
     st.thunderTrue = id === 'BA9F';
-    myDmuRetryAction(data, 'p4-late-thunder-chat', () =>
-      myDmuTrySendP4LateThunderChats(data), 12, 500);
+    myDmuRetryAction(data, 'p4-solution-macro', () =>
+      myDmuTrySendP4SolutionMacro(data), 12, 500);
     return true;
   }
   if (myDmuP4IceSpellIds.includes(id)) {
@@ -10670,8 +10903,8 @@ const myDmuRecordP4LateSpell = (data, matches) => {
       return true;
     st.iceSeen = true;
     st.iceTrue = id === 'BA98';
-    myDmuRetryAction(data, 'p4-late-ice-chat', () =>
-      myDmuTrySendP4LateIceChats(data), 12, 500);
+    myDmuRetryAction(data, 'p4-solution-macro', () =>
+      myDmuTrySendP4SolutionMacro(data), 12, 500);
     return true;
   }
   return false;
@@ -10757,16 +10990,7 @@ const myDmuTrySendP4LateIceChats = (data) => {
 const myDmuTrySendP4BuffChats = (data) => {
   if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
     return true;
-  const elementReady = myDmuTrySendP4ElementChat(data);
-  const petrifyReady = myDmuTrySendP4PetrifyChat(data);
-  const accelerationReady = myDmuTrySendP4AccelerationChat(data);
-  const accelerationGroupReady = myDmuTrySendP4AccelerationGroupChat(data);
-  const chaosReady = myDmuTrySendP4ChaosChat(data);
-  const longAttackReady = myDmuTrySendP4LongAttack12Chat(data);
-  const longPetrifyReady = myDmuTrySendP4LongPetrifyChat(data);
-  const mandarinReady = myDmuTrySendP4MandarinDuckChats(data);
-  return elementReady && petrifyReady && accelerationReady && accelerationGroupReady &&
-    chaosReady && longAttackReady && longPetrifyReady && mandarinReady;
+  return myDmuTrySendP4SolutionMacro(data);
 };
 
 const myDmuP4RoundRecordsReady = (records, expected, requireTruth = true) => {
@@ -11126,10 +11350,8 @@ const myDmuApplyP4ElementRound = (data, round) => {
     return false;
   data.myDmuP4.elementMarked[round] = true;
   myDmuP4ScheduleElementTransition(data, round, records);
-  if (round === 'long') {
-    myDmuTrySendP4LongAttack12Chat(data);
-    myDmuTrySendP4LongPetrifyChat(data);
-  }
+  if (round === 'long')
+    myDmuTrySendP4SolutionMacro(data);
   return true;
 };
 
@@ -11161,10 +11383,7 @@ const myDmuApplyP4PetrifyRound = (data, round) => {
     return false;
   data.myDmuP4.petrifyMarked[round] = true;
   myDmuP4ScheduleKindClear(data, kind, records, round === 'long' ? 3500 : 0);
-  if (round === 'short')
-    myDmuTrySendP4LongAttack12Chat(data);
-  if (round === 'long')
-    myDmuTrySendP4LongPetrifyChat(data);
+  myDmuTrySendP4SolutionMacro(data);
   return true;
 };
 
@@ -11196,14 +11415,14 @@ function myDmuProcessP4MarkTiming(data, source = 'process') {
   if (data.myDmuP4.elementCleared.short && !data.myDmuP4.petrifyMarked.short && !data.myDmuP4.petrifyCleared.short)
     return myDmuApplyP4PetrifyRound(data, 'short');
   if (data.myDmuP4.petrifyMarked.short)
-    myDmuTrySendP4LongAttack12Chat(data);
+    myDmuTrySendP4SolutionMacro(data);
   if (!data.myDmuP4.petrifyCleared.short)
     return true;
 
   if (!data.myDmuP4.elementMarked.long && !data.myDmuP4.elementCleared.long)
     return myDmuApplyP4ElementRound(data, 'long');
   if (data.myDmuP4.elementMarked.long)
-    myDmuTrySendP4LongPetrifyChat(data);
+    myDmuTrySendP4SolutionMacro(data);
   if (data.myDmuP4.elementCleared.long && !data.myDmuP4.petrifyMarked.long && !data.myDmuP4.petrifyCleared.long)
     return myDmuApplyP4PetrifyRound(data, 'long');
   return true;
@@ -13321,8 +13540,8 @@ Options.Triggers.push({
       condition: (data, matches) => data.myDmuPhase === 'p4' && matches.target === data.me,
       run: (data, matches) => {
         myDmuRecordP4MandarinDuckBuff(data, matches);
-        myDmuRetryAction(data, 'p4-mandarin-chat', () =>
-          myDmuTrySendP4MandarinDuckChats(data), 10, 500);
+        myDmuRetryAction(data, 'p4-solution-macro', () =>
+          myDmuTrySendP4SolutionMacro(data), 10, 500);
       },
     },
     {
@@ -13332,8 +13551,8 @@ Options.Triggers.push({
       condition: (data) => data.myDmuPhase === 'p4',
       run: (data, matches) => {
         myDmuRecordP4MandarinDuckAntilight(data, matches);
-        myDmuRetryAction(data, 'p4-mandarin-chat', () =>
-          myDmuTrySendP4MandarinDuckChats(data), 12, 500);
+        myDmuRetryAction(data, 'p4-solution-macro', () =>
+          myDmuTrySendP4SolutionMacro(data), 12, 500);
       },
     },
     {
@@ -13447,12 +13666,8 @@ Options.Triggers.push({
         myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true),
       delaySeconds: (_data, matches) => Math.max((myDmuNumber(matches.duration) ?? 0) - 5, 0),
       run: (data, matches) => {
-        const effectId = matches.effectId.toUpperCase();
-        const duration = myDmuNumber(matches.duration);
-        myDmuRetryAction(data, `p4-execute-${effectId}-${matches.targetId}`, () => {
-          const rec = myDmuP4RecordForEvent(data, matches.targetId, effectId, duration);
-          return myDmuTrySendP4ExecuteChat(data, rec);
-        }, 8, 300);
+        myDmuRetryAction(data, 'p4-solution-macro', () =>
+          myDmuTrySendP4SolutionMacro(data), 8, 300);
       },
     },
     {
