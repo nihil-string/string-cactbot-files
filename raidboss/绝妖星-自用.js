@@ -10002,7 +10002,8 @@ const myDmuTryApplyP3TargetMarkers = (data) => {
 const myDmuP4RecordTruth = (data, target, value, matches, source = 'fallback') => {
   const now = myDmuNativeVfxEventMilliseconds(matches);
   data.myDmuP4.truthEvents[target] ??= [];
-  const duplicate = data.myDmuP4.truthEvents[target].findLast((event) =>
+  // OverlayPlugin Chromium 95 has no Array#findLast; preserve newest-match semantics.
+  const duplicate = data.myDmuP4.truthEvents[target].slice().reverse().find((event) =>
     event.at === now && event.value === value);
   if (duplicate === undefined)
     data.myDmuP4.truthEvents[target].push({ at: now, value: value, source });
@@ -10034,7 +10035,7 @@ const myDmuP4CacheBuff = (data, matches) => {
   const now = myDmuNativeVfxEventMilliseconds(matches);
   data.myDmuP4.buffs[targetId] ??= {};
   data.myDmuP4.buffRecords ??= [];
-  const duplicate = data.myDmuP4.buffRecords.findLast((record) =>
+  const duplicate = data.myDmuP4.buffRecords.slice().reverse().find((record) =>
     record.id === myDmuNormalizeActorId(targetId) && record.buffId === buffId &&
     record.firstSeenAt === now && Math.abs((record.initialDuration ?? 0) - (duration ?? 0)) < 0.01);
   if (duplicate !== undefined)
