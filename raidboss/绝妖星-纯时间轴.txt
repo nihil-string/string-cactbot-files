@@ -277,7 +277,7 @@ hideall "--sync--"
 828.68 "顶起" Ability { id: ["BB05", "BB06"] } window 1,1
 840.8 "--sync--" #StartsUsing { id: "C258" } jump "p3-enrage"
 840.8 "--sync--" #StartsUsing { id: "C259" } jump "p3-enrage"
-844.94 "--sync--" AddedCombatant { npcBaseId: "19510" } window 2,2 jump "p4-spawn" # Primary: hidden Reborn Exdeath spawns together with Chaos in all three clears.
+844.94 "--sync--" AddedCombatant { npcBaseId: "19510" } window 60,20 jump "p4-spawn" # Unique P4 spawn: allow variable P3 kill timing; 9/9 clear is ~10s earlier.
 845.8 "陨石流星（狂暴？）" #Ability { id: "C258" } # Exdeath >0% HP?
 845.8 "深层痛楚（狂暴？）" #Ability { id: "C259" } # Chaos >0% HP?
 847.18 "--sync--" NameToggle { name: "凯夫卡", toggle: "01" } window 2,2 jump "p4-targetable" # Fallback when AddedCombatant is unavailable.

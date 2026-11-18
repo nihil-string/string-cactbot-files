@@ -86,6 +86,14 @@ const myDmuP1ArrowBuffs = {
 };
 const myDmuP1PoisonBuff = '13D6';
 const myDmuP1PoisonMarkers = ['bind1', 'bind2'];
+const myDmuP1StatueActions = {
+  '1EBFBC': '去东（右）',
+  '1EBFBD': '去西（左）',
+  '1EBFBE': '背对神像',
+  '1EBFBF': '看神像',
+};
+// These objects are added before combat; keep their authoritative BNpcID across initData().
+const myDmuP1StatueIds = new Map();
 const myDmuP2ARounds = new Set([1, 2, 3, 8]);
 const myDmuP2Pair2222IdleOddModes = {
   role: 'role',
@@ -453,6 +461,15 @@ const myDmuP1CalloutEnabled = (data) =>
 
 const myDmuVoiceCalloutEnabled = (data) =>
   myDmuBooleanConfig(data, 'MyDMU_VoiceCalloutV2', false);
+
+const myDmuP4CalloutEnabled = (data) =>
+  data.myDmuPhase === 'p4' && myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true);
+
+const myDmuPhaseActionCalloutEnabled = (data, phase) => {
+  const key = { p1: 'MyDMU_P1Callout', p2: 'MyDMU_P2ActionCallout',
+    p3: 'MyDMU_P3ActionCallout', p5: 'MyDMU_P5MitigationAlert' }[phase];
+  return key !== undefined && data.myDmuPhase === phase && myDmuBooleanConfig(data, key, true);
+};
 
 const myDmuP5CalloutEnabled = (data) =>
   data.myDmuPhase === 'p5' && myDmuBooleanConfig(data, 'MyDMU_P5MitigationAlert', true);
@@ -1131,9 +1148,11 @@ const myDmuP5TrioIdleTowerText = (data) => {
 
 const myDmuP5MagicHitText = (data) => {
   const state = myDmuEnsureP5State(data);
-  const expectedHits = myDmuP5MagicHitSequence[state.magicHitCount] ?? 1;
+  const expectedHits = myDmuP5MagicHitSequence[state.magicHitCount];
+  if (expectedHits === undefined)
+    return undefined;
   state.magicHitCount++;
-  return expectedHits <= 1 ? '最后一下' : `还有${expectedHits - 1}下`;
+  return expectedHits <= 1 ? '打完了' : `还有${expectedHits - 1}下`;
 };
 
 const myDmuP5SoftEnrageStopText = (data) => {
@@ -1718,6 +1737,7 @@ const myDmuScheduleClearMarks = (data, key, delaySeconds = 0.5, condition = () =
 };
 
 const myDmuResetP1 = (data) => {
+  data.myDmuP1Magic = {};
   data.myDmuSpeech = {};
   data.myDmuMarkState = myDmuNewMarkState();
   data.myDmuP1GravenCount = 0;
@@ -3081,6 +3101,233 @@ const myDmuP4RecordExpiresAt = (rec) => {
   return firstSeenAt + duration * 1000;
 };
 
+// Souma's P4 presentation: a personal sequence, then reminders 8s before resolution.
+// Read the existing timestamp-bound truth records; no String role lease or chat gate.
+const myDmuP4ActionNames = {
+  spread: ['雷分散', '出去分散'],
+  stack: ['水分摊', '3人分摊'],
+  gazeOut: ['真石化', '出去背对'],
+  gazeIn: ['假石化', '脚底互看'],
+  avoidGaze: ['躲石化', '躲石化'],
+  faceGaze: ['看石化', '看石化'],
+  stop: ['静剑', '静剑停停停'],
+  move: ['动剑', '动剑动动动'],
+  out: ['放钢铁', '放钢铁'],
+  in: ['放月环', '放月环'],
+};
+
+const myDmuP4RecordAction = (rec) => {
+  if (typeof rec?.truth !== 'boolean')
+    return undefined;
+  const element = myDmuP4ElementSide(rec);
+  if (element !== undefined)
+    return element === 'out' ? 'spread' : 'stack';
+  if (rec.buffId === myDmuP4PetrifyBuff)
+    return rec.truth ? 'gazeOut' : 'gazeIn';
+  if (rec.buffId === myDmuP4AccelerationBuff)
+    return rec.truth ? 'stop' : 'move';
+  const chaos = myDmuP4ChaosActionText(rec);
+  return chaos === '钢铁' ? 'out' : chaos === '月环' ? 'in' : undefined;
+};
+
+const myDmuP4CalloutRoster = (data) => {
+  const party = data.party?.partyNames;
+  if (Array.isArray(party) && party.length === 8 && new Set(party).size === 8 && party.includes(data.me))
+    return new Set(party);
+  // A complete eight-player effect cohort also identifies the roster without a role overlay.
+  for (const buffId of [myDmuP4AccelerationBuff, ...myDmuP4ChaosBuffs]) {
+    const records = myDmuP4RecordsFor(data, [buffId]);
+    if (records.some((rec) => rec.id === undefined || typeof rec.name !== 'string' || rec.name === ''))
+      continue;
+    const names = new Set(records.map((rec) => rec.name));
+    if (records.length === 8 && new Set(records.map((rec) => rec.id)).size === 8 &&
+        names.size === 8 && names.has(data.me))
+      return names;
+  }
+  return undefined;
+};
+
+const myDmuP4PersonalGroups = (data) => {
+  const roster = myDmuP4CalloutRoster(data);
+  if (roster === undefined)
+    return [];
+  const timed = myDmuP4RecordsFor(data, myDmuP4PersonalActionBuffs).map((rec) => {
+    myDmuP4RefreshRecordTruth(data, rec);
+    return { rec, at: myDmuP4RecordExpiresAt(rec), action: myDmuP4RecordAction(rec) };
+  }).filter((item) => Number.isFinite(item.at)).sort((a, b) => a.at - b.at);
+  const groups = [];
+  for (const item of timed) {
+    let group = groups[groups.length - 1];
+    if (group === undefined || item.at - group.at > 1000) {
+      group = { at: item.at, items: [] };
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+  return groups.flatMap((group) => {
+    const items = group.items;
+    if (items.some(({ rec, action }) => rec.id === undefined || !roster.has(rec.name) || action === undefined))
+      return [];
+    // Duplicates or incomplete cohorts must not turn a missing spread target into a stack call.
+    const unique = new Set(items.map(({ rec }) => `${rec.id}:${rec.buffId}`));
+    if (unique.size !== items.length)
+      return [];
+    const elements = items.filter(({ rec }) => myDmuP4ElementBuffs.includes(rec.buffId));
+    const swords = items.filter(({ rec }) => rec.buffId === myDmuP4AccelerationBuff);
+    const eyes = items.filter(({ rec }) => rec.buffId === myDmuP4PetrifyBuff);
+    const chaos = items.filter(({ rec }) => myDmuP4ChaosBuffs.includes(rec.buffId));
+    const own = items.filter(({ rec }) => rec.name === data.me);
+    let actions;
+    let kind;
+    if (elements.length === 4 && swords.length === 4 && items.length === 8 &&
+        new Set(elements.map(({ rec }) => rec.id)).size === 4 &&
+        new Set(swords.map(({ rec }) => rec.id)).size === 4 &&
+        elements.filter(({ action }) => action === 'spread').length === 2) {
+      const element = own.find(({ rec }) => myDmuP4ElementBuffs.includes(rec.buffId));
+      const sword = own.find(({ rec }) => rec.buffId === myDmuP4AccelerationBuff);
+      actions = [element?.action ?? 'stack', ...(sword === undefined ? [] : [sword.action])];
+      kind = 'element';
+    } else if (eyes.length === 2 && items.length === 2 && new Set(eyes.map(({ rec }) => rec.id)).size === 2 &&
+        eyes[0].action === eyes[1].action) {
+      actions = [own[0]?.action ?? (eyes[0].action === 'gazeOut' ? 'avoidGaze' : 'faceGaze')];
+      kind = 'eye';
+    } else if (chaos.length === 8 && items.length === 8 && own.length === 1 &&
+        new Set(chaos.map(({ rec }) => rec.id)).size === 8 &&
+        new Set(chaos.map(({ rec }) => rec.buffId)).size === 1 &&
+        new Set(chaos.map(({ action }) => action)).size === 1) {
+      actions = [own[0].action];
+      kind = 'chaos';
+    } else {
+      return [];
+    }
+    return [{ at: group.at, kind, actions,
+      shortText: actions.map((action) => myDmuP4ActionNames[action][0]).join('+'),
+      text: actions.map((action) => myDmuP4ActionNames[action][1]).join('+') }];
+  });
+};
+
+const myDmuP4CaptureCallout = (data, matches) => {
+  matches.myDmuP4CalloutState = data.myDmuP4;
+  matches.myDmuP4CalloutFence = myDmuCaptureTaskFence(data);
+};
+
+const myDmuP4CalloutCurrent = (data, matches) =>
+  myDmuP4CalloutEnabled(data) && matches.myDmuP4CalloutState === data.myDmuP4 &&
+  myDmuTaskFenceCurrent(data, matches.myDmuP4CalloutFence);
+
+const myDmuP4PersonalOverview = (data, matches) => {
+  if (!myDmuP4CalloutCurrent(data, matches) || data.myDmuP4.overviewShown)
+    return undefined;
+  const groups = myDmuP4PersonalGroups(data);
+  if (groups.map((group) => group.kind).join(',') !== 'element,eye,chaos,element,eye,chaos' ||
+      groups[0].at <= Date.now())
+    return undefined;
+  data.myDmuP4.overviewShown = true;
+  return groups.map((group) => group.shortText).join(' → ');
+};
+
+const myDmuP4PersonalReminder = (data, matches) => {
+  if (!myDmuP4CalloutCurrent(data, matches))
+    return undefined;
+  const at = myDmuEventMilliseconds(matches) + myDmuNumber(matches.duration) * 1000;
+  const group = myDmuP4PersonalGroups(data).find((item) => Math.abs(item.at - at) <= 1000);
+  if (group === undefined || group.at < Date.now() - 1000)
+    return undefined;
+  const sent = data.myDmuP4.screenReminderTimes ??= [];
+  if (sent.some((time) => Math.abs(time - group.at) <= 1000))
+    return undefined;
+  sent.push(group.at);
+  return myDmuCacheSpeech(data, 'p4BuffReminder', group.text);
+};
+
+const myDmuP4ChaosInstantText = (data, matches, wanted, text) => {
+  if (!myDmuP4CalloutCurrent(data, matches) || matches.target !== data.me)
+    return undefined;
+  const rec = myDmuP4RecordForEvent(data, matches.targetId, matches.effectId, myDmuNumber(matches.duration));
+  if (rec === undefined || rec.firstSeenAt !== myDmuEventMilliseconds(matches))
+    return undefined;
+  myDmuP4RefreshRecordTruth(data, rec);
+  if (myDmuP4RecordAction(rec) !== wanted)
+    return undefined;
+  const sent = data.myDmuP4.screenInstantSent ??= {};
+  if (sent[rec.serial])
+    return undefined;
+  sent[rec.serial] = true;
+  return myDmuCacheSpeech(data, 'p4ChaosInstant', text);
+};
+
+const myDmuRecordVisibleSpell = (state, matches) => {
+  const info = myDmuP4MagicStorageLabels[matches.id];
+  if (info === undefined)
+    return;
+  const spells = state.visibleSpells ??= {};
+  const at = myDmuEventMilliseconds(matches);
+  const old = spells[info.element];
+  if (old === undefined || at - old.at > 1000)
+    spells[info.element] = { at, label: info.label };
+  else if (old.label !== info.label)
+    old.label = undefined;
+};
+
+const myDmuVisibleSpell = (state, matches, element) => {
+  const spell = state?.visibleSpells?.[element];
+  return spell !== undefined && Math.abs(spell.at - myDmuEventMilliseconds(matches)) <= 1000
+    ? spell.label : undefined;
+};
+
+const myDmuP4RecordVisibleSpell = (data, matches) => myDmuRecordVisibleSpell(data.myDmuP4, matches);
+const myDmuP4VisibleSpell = (data, matches, element) => myDmuVisibleSpell(data.myDmuP4, matches, element);
+
+const myDmuP1IceThunderText = (data, matches) => {
+  if (!myDmuP1CalloutEnabled(data))
+    return undefined;
+  const ice = myDmuVisibleSpell(data.myDmuP1Magic, matches, 'ice');
+  const thunder = myDmuVisibleSpell(data.myDmuP1Magic, matches, 'thunder');
+  if (ice === undefined)
+    return undefined;
+  const text = thunder === undefined
+    ? (ice === '假冰' ? '吃扇形' : '躲扇形')
+    : myDmuP4MagicEatText(thunder, ice);
+  return myDmuCacheSpeech(data, 'p1IceThunder', text);
+};
+
+const myDmuP3BomberRoleText = (data, matches) => {
+  if (!myDmuPhaseActionCalloutEnabled(data, 'p3'))
+    return undefined;
+  const targetRole = data.party?.nameToRole_?.[matches.target];
+  if (!['tank', 'healer', 'dps'].includes(targetRole) || !['tank', 'healer', 'dps'].includes(data.role))
+    return undefined;
+  return myDmuCacheSpeech(data, 'p3Bombardment',
+    (targetRole === 'dps') === (data.role === 'dps') ? '场中分摊' : '外面踩塔');
+};
+
+const myDmuP3ImpersonationText = (data, matches) => {
+  if (!myDmuPhaseActionCalloutEnabled(data, 'p3') || !['tank', 'healer', 'dps'].includes(data.role))
+    return undefined;
+  const heading = myDmuNumber(matches.heading);
+  if (heading === undefined)
+    return undefined;
+  const facing = (Math.round(4 - 4 * heading / Math.PI) % 8 + 8) % 8;
+  const dir = (facing + (data.role === 'dps' ? 0 : 4)) % 8;
+  const direction = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'][dir];
+  return myDmuCacheSpeech(data, 'p3ImpersonationRole', `${data.role === 'dps' ? 'DPS' : 'TN'}去${direction}`);
+};
+
+const myDmuP4MagicCallout = (data, matches, kind) => {
+  if (!myDmuP4CalloutCurrent(data, matches))
+    return undefined;
+  const thunder = myDmuP4VisibleSpell(data, matches, 'thunder');
+  const ice = myDmuP4VisibleSpell(data, matches, 'ice');
+  let text;
+  if (kind === 'both' && thunder !== undefined && ice !== undefined)
+    text = myDmuP4MagicEatText(thunder, ice);
+  if (kind === 'thunder' && thunder !== undefined)
+    text = thunder === '假雷' ? '吃直条' : '不吃直条';
+  if (kind === 'ice' && ice !== undefined)
+    text = ice === '假冰' ? '吃扇形' : '不吃扇形';
+  return myDmuCacheSpeech(data, 'p4Magic', text);
+};
+
 const myDmuSendP4BuffChat = (data, key, text) => {
   if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
     return true;
@@ -3545,6 +3792,28 @@ const myDmuP4MagicEatText = (thunderLabel, iceLabel) => {
   return '都不吃';
 };
 
+const myDmuP4MagicReleaseResult = (data) => {
+  const st = myDmuP4MagicEnsureStorage(data);
+  const rel = st.release ?? {};
+  if (rel.channelSeen !== true)
+    return undefined;
+  const thunderBase = myDmuP4MagicStorageSingleLabel(data, 'thunder');
+  const iceBase = myDmuP4MagicStorageSingleLabel(data, 'ice');
+  const thunderMod = rel.mods?.thunder;
+  const iceMod = rel.mods?.ice;
+  if (thunderBase === undefined || iceBase === undefined || thunderMod === undefined || iceMod === undefined)
+    return undefined;
+
+  const thunderFinal = thunderMod.invert ? myDmuP4MagicOppositeLabel(thunderBase) : thunderBase;
+  const iceFinal = iceMod.invert ? myDmuP4MagicOppositeLabel(iceBase) : iceBase;
+  const finalChaos = myDmuP4ChaosActionForLength(data, 'long');
+  const moveText = finalChaos === '钢铁' ? '，远离' :
+    finalChaos === '月环' ? '，靠近' :
+      '';
+  const action = `${myDmuP4MagicEatText(thunderFinal, iceFinal)}${moveText}`;
+  return { action, message: `魔法放出：${thunderFinal} ${iceFinal}/${action}` };
+};
+
 const myDmuP4MagicTrySendRelease = (data, source) => {
   if (data.myDmuPhase !== 'p4' || !myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true))
     return false;
@@ -3554,20 +3823,9 @@ const myDmuP4MagicTrySendRelease = (data, source) => {
     return false;
   if (rel.pending !== undefined)
     return rel.pending;
-  const thunderBase = myDmuP4MagicStorageSingleLabel(data, 'thunder');
-  const iceBase = myDmuP4MagicStorageSingleLabel(data, 'ice');
-  const thunderMod = rel.mods?.thunder;
-  const iceMod = rel.mods?.ice;
-  if (thunderBase === undefined || iceBase === undefined || thunderMod === undefined || iceMod === undefined)
+  const message = myDmuP4MagicReleaseResult(data)?.message;
+  if (message === undefined)
     return false;
-
-  const thunderFinal = thunderMod.invert ? myDmuP4MagicOppositeLabel(thunderBase) : thunderBase;
-  const iceFinal = iceMod.invert ? myDmuP4MagicOppositeLabel(iceBase) : iceBase;
-  const finalChaos = myDmuP4ChaosActionForLength(data, 'long');
-  const moveText = finalChaos === '钢铁' ? '，远离' :
-    finalChaos === '月环' ? '，靠近' :
-      '';
-  const message = `魔法放出：${thunderFinal} ${iceFinal}/${myDmuP4MagicEatText(thunderFinal, iceFinal)}${moveText}`;
   const result = myDmuAfterOutput(data,
     myDmuSendP4BuffChat(data, `p4-magic-release:${st.storeCount}`, message), () => {
       rel.sent = true;
@@ -3933,8 +4191,79 @@ Options.Triggers.push({
     ...myDmuP2TowerTimelineTriggers,
     ...myDmuP5MitigationTimelineTriggers,
     myDmuP3MahjongFallbackTimelineTrigger,
+    {
+      id: '绝妖星 P5 魔击准备',
+      regex: /^魔击 (?<hit>1|4|6|8)$/,
+      beforeSeconds: 2,
+      durationSeconds: 3,
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      infoText: (data, matches) => {
+        if (!myDmuP5CalloutEnabled(data))
+          return undefined;
+        const count = { 1: 3, 4: 2, 6: 2, 8: 3 }[matches.hit];
+        return myDmuCacheSpeech(data, 'p5MagicPrepare', count === undefined ? undefined : `准备平A（${count}次）`);
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5MagicPrepare'),
+    },
   ],
   triggers: [
+    {
+      id: '绝妖星 P1 神像实体类型',
+      type: 'CombatantMemory',
+      netRegex: { change: 'Add', pair: [{ key: 'BNpcID', value: Object.keys(myDmuP1StatueActions) }], capture: true },
+      run: (_data, matches) => {
+        const actorId = myDmuNormalizeActorId(matches.id);
+        const action = myDmuP1StatueActions[matches.pairBNpcID];
+        if (actorId === undefined || action === undefined)
+          return;
+        myDmuP1StatueIds.set(actorId, action);
+        if (myDmuP1StatueIds.size > 32)
+          myDmuP1StatueIds.delete(myDmuP1StatueIds.keys().next().value);
+      },
+    },
+    {
+      id: '绝妖星 P1 神像实体移除',
+      type: 'CombatantMemory',
+      netRegex: { change: 'Remove', capture: true },
+      run: (_data, matches) => myDmuP1StatueIds.delete(myDmuNormalizeActorId(matches.id)),
+    },
+    {
+      id: '绝妖星 P1 神像行动',
+      type: 'ActorControlExtra',
+      netRegex: { category: '019D', param1: '40', param2: '80', capture: true },
+      condition: (data) => myDmuP1CalloutEnabled(data),
+      durationSeconds: (_data, matches) =>
+        myDmuP1StatueIds.get(myDmuNormalizeActorId(matches.id))?.includes('神像') ? 10 : 5,
+      countdownSeconds: (_data, matches) =>
+        myDmuP1StatueIds.get(myDmuNormalizeActorId(matches.id))?.includes('神像') ? 10 : undefined,
+      alertText: (data, matches) => myDmuP1CalloutEnabled(data)
+        ? myDmuCacheSpeech(data, 'p1Statue', myDmuP1StatueIds.get(myDmuNormalizeActorId(matches.id))) : undefined,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p1Statue'),
+    },
+    {
+      id: '绝妖星 P1 冰雷读条记录',
+      type: 'StartsUsing',
+      netRegex: { id: Object.keys(myDmuP4MagicStorageLabels), capture: true },
+      condition: (data) => data.myDmuPhase === 'p1',
+      preRun: (data, matches) => myDmuRecordVisibleSpell(data.myDmuP1Magic ??= {}, matches),
+    },
+    {
+      id: '绝妖星 P1 真假冰雷文字',
+      type: 'StartsUsing',
+      netRegex: { id: 'BA94', capture: true },
+      condition: (data) => myDmuP1CalloutEnabled(data) && data.myDmuP1GravenCount === 1,
+      delaySeconds: 0.3,
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: myDmuP1IceThunderText,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p1IceThunder'),
+    },
     {
       id: '绝妖星 阶段追踪',
       type: 'StartsUsing',
@@ -3943,9 +4272,10 @@ Options.Triggers.push({
         const nextPhase = myDmuPhaseStarts[matches.id];
         if (nextPhase === undefined)
           return;
-        // BB40 also opens Repeater 3 inside P5; it is not a second phase transition.
-        if (nextPhase === 'p5' && data.myDmuPhase === 'p5')
+        // C403/C24C/BB40 recur inside their phases. Only the first entrance resets progress.
+        if (nextPhase === data.myDmuPhase && (data.myDmuPhaseEntrySeen || nextPhase === 'p5'))
           return;
+        data.myDmuPhaseEntrySeen = true;
         if (data.myDmuPhase === 'p4' && nextPhase !== 'p4')
           myDmuCancelP4Timers(data);
         const previousPhase = data.myDmuPhase;
@@ -3961,6 +4291,7 @@ Options.Triggers.push({
           myDmuResetP3Mahjong(data);
           myDmuResetP3Targets(data);
           data.myDmuP3FirewallTargetKind = undefined;
+          data.myDmuP3Mud = undefined;
           myDmuClearMarks(data);
         } else if (data.myDmuPhase === 'p4') {
           myDmuResetP4(data);
@@ -4559,12 +4890,14 @@ Options.Triggers.push({
       condition: (data, matches) =>
         data.myDmuPhase === 'p3' &&
         myDmuBooleanConfig(data, 'MyDMU_P3DebuffCallout', true) &&
-        matches.target === data.me,
+        matches.target === data.me && myDmuNumber(matches.duration) > 0.5,
       delaySeconds: 0.5,
-      durationSeconds: 5,
+      durationSeconds: (_data, matches) => myDmuNumber(matches.duration) - 0.5,
+      countdownSeconds: (_data, matches) => myDmuNumber(matches.duration) - 0.5,
       suppressSeconds: 1,
-      infoText: (data, matches) =>
-        myDmuCacheSpeech(data, `p3Debuff${matches.effectId}`, myDmuP3ElementDebuffText(matches)),
+      infoText: (data, matches) => data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3DebuffCallout', true)
+        ? myDmuCacheSpeech(data, `p3Debuff${matches.effectId}`, myDmuP3ElementDebuffText(matches)) : undefined,
       tts: null,
       soundVolume: 0,
       run: (data, matches) => myDmuSpeakCached(data, `p3Debuff${matches.effectId}`),
@@ -4576,12 +4909,14 @@ Options.Triggers.push({
       condition: (data, matches) =>
         data.myDmuPhase === 'p3' &&
         myDmuBooleanConfig(data, 'MyDMU_P3DebuffCallout', true) &&
-        matches.target === data.me,
-      delaySeconds: (_data, matches) => Math.max((myDmuNumber(matches.duration) ?? 68) - 10, 0),
-      durationSeconds: 5,
+        matches.target === data.me && myDmuNumber(matches.duration) > 0,
+      delaySeconds: (_data, matches) => Math.max(myDmuNumber(matches.duration) - 10, 0),
+      durationSeconds: (_data, matches) => Math.min(myDmuNumber(matches.duration), 10),
+      countdownSeconds: (_data, matches) => Math.min(myDmuNumber(matches.duration), 10),
       suppressSeconds: 1,
-      infoText: (data, matches) =>
-        myDmuCacheSpeech(data, `p3Debuff${matches.effectId}`, myDmuP3ElementDebuffText(matches)),
+      infoText: (data, matches) => data.myDmuPhase === 'p3' &&
+        myDmuBooleanConfig(data, 'MyDMU_P3DebuffCallout', true)
+        ? myDmuCacheSpeech(data, `p3Debuff${matches.effectId}`, myDmuP3ElementDebuffText(matches)) : undefined,
       tts: null,
       soundVolume: 0,
       run: (data, matches) => myDmuSpeakCached(data, `p3Debuff${matches.effectId}`),
@@ -4692,7 +5027,8 @@ Options.Triggers.push({
       delaySeconds: 5.3,
       durationSeconds: 3,
       suppressSeconds: 1,
-      alertText: (data) => myDmuCacheSpeech(data, 'p3LatitudeLongitudeCross', '穿'),
+      alertText: (data) => myDmuPhaseActionCalloutEnabled(data, 'p3')
+        ? myDmuCacheSpeech(data, 'p3LatitudeLongitudeCross', '穿') : undefined,
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p3LatitudeLongitudeCross'),
@@ -4747,6 +5083,77 @@ Options.Triggers.push({
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p3EarthquakeHpOne'),
+    },
+    {
+      id: '绝妖星 P3 混沌之泥土治疗',
+      type: 'GainsEffect',
+      netRegex: { effectId: '644', capture: true },
+      condition: (data) => data.myDmuPhase === 'p3',
+      preRun: (data, matches) => {
+        const now = myDmuEventMilliseconds(matches);
+        if (data.myDmuP3Mud === undefined || now - data.myDmuP3Mud.at > 2000)
+          data.myDmuP3Mud = { at: now, targets: [], shown: false };
+        const targets = data.myDmuP3Mud.targets;
+        if (myDmuPartyNames(data).includes(matches.target) && !targets.some((target) => target.id === matches.targetId))
+          targets.push({ id: matches.targetId, name: matches.target });
+      },
+      delaySeconds: 0.3,
+      durationSeconds: 7,
+      alertText: (data) => {
+        const state = data.myDmuP3Mud;
+        if (!myDmuPhaseActionCalloutEnabled(data, 'p3') || data.role !== 'healer' ||
+            state?.targets.length !== 2 || state.shown)
+          return undefined;
+        state.shown = true;
+        return myDmuCacheSpeech(data, 'p3MudHeal', `奶满：${state.targets.map((target) => data.ShortName?.(target.name) ?? target.name).join('、')}`);
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3MudHeal'),
+    },
+    ...[
+      ['暴雷钢铁', ['BB12'], '远离艾克斯迪司'],
+      ['白洞满血', ['BD66'], '满血检测'],
+      ['本色出演两侧', ['BAEC', 'BAED'], '去两侧'],
+      ['诅咒赦令', ['BB01'], '去背后'],
+      ['顶起移动', ['BB05'], '去外面，保持移动'],
+    ].map(([name, ids, text]) => ({
+      id: `绝妖星 P3 ${name}`,
+      type: 'StartsUsing',
+      netRegex: { id: ids, capture: true },
+      condition: (data) => myDmuPhaseActionCalloutEnabled(data, 'p3'),
+      durationSeconds: (_data, matches) => myDmuNumber(matches.castTime) ?? 5,
+      countdownSeconds: (_data, matches) => myDmuNumber(matches.castTime),
+      suppressSeconds: 1,
+      alertText: (data) => myDmuPhaseActionCalloutEnabled(data, 'p3')
+        ? myDmuCacheSpeech(data, `p3${name}`, text) : undefined,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, `p3${name}`),
+    })),
+    {
+      id: '绝妖星 P3 本色出演职能方向',
+      type: 'StartsUsing',
+      netRegex: { id: 'BAED', capture: true },
+      condition: (data) => myDmuPhaseActionCalloutEnabled(data, 'p3'),
+      delaySeconds: 5,
+      durationSeconds: 10,
+      alertText: myDmuP3ImpersonationText,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3ImpersonationRole'),
+    },
+    {
+      id: '绝妖星 P3 轰击分摊踩塔',
+      type: 'HeadMarker',
+      netRegex: { id: '00A1', capture: true },
+      condition: (data) => myDmuPhaseActionCalloutEnabled(data, 'p3'),
+      durationSeconds: 5.5,
+      suppressSeconds: 1,
+      infoText: myDmuP3BomberRoleText,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p3Bombardment'),
     },
     {
       id: '绝妖星 P3 简易打铁警察',
@@ -4891,6 +5298,17 @@ Options.Triggers.push({
       },
     },
     {
+      id: '绝妖星 P4 真假Buff补充证据',
+      type: 'GainsEffect',
+      netRegex: { effectId: '808', count: myDmuP4TruthActorControlMarkers, capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
+      preRun: (data, matches) => {
+        const truth = myDmuP4TruthHeadmarkers[myDmuNormalizeHeadmarkerId(matches.count)];
+        if (truth !== undefined)
+          myDmuP4RecordTruth(data, truth.target, truth.value, matches, 'gains-effect');
+      },
+    },
+    {
       id: '绝妖星 P4 真假ActorControl优先证据',
       type: 'ActorControlExtra',
       netRegex: {
@@ -4964,6 +5382,7 @@ Options.Triggers.push({
           return myDmuP4MagicBeginStorage(data, matches);
         if (id === myDmuP4MagicReleaseId)
           return myDmuP4MagicReleaseChannel(data, matches, 'starts-using');
+        myDmuP4RecordVisibleSpell(data, matches);
         myDmuRecordP4LateSpell(data, matches);
         return myDmuP4MagicRecordStorageSpell(data, matches);
       },
@@ -5010,9 +5429,12 @@ Options.Triggers.push({
       condition: (data) =>
         data.myDmuPhase === 'p4' &&
         myDmuBooleanConfig(data, 'MyDMU_P4BuffChat', true),
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: 0.5,
       durationSeconds: 5,
       suppressSeconds: 1,
-      infoText: (data) => myDmuCacheSpeech(data, 'p4NoFlood', myDmuP4NoFloodText(data)),
+      infoText: (data, matches) => myDmuP4CalloutCurrent(data, matches)
+        ? myDmuCacheSpeech(data, 'p4NoFlood', myDmuP4NoFloodText(data)) : undefined,
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p4NoFlood'),
@@ -5021,6 +5443,7 @@ Options.Triggers.push({
       id: '绝妖星 P4 Buff 缓存与元素标点',
       type: 'GainsEffect',
       netRegex: { effectId: myDmuP4TrackedBuffs, capture: true },
+      condition: (data) => data.myDmuPhase === 'p4',
       preRun: (data, matches) => {
         myDmuP4CacheBuff(data, matches);
         myDmuRetryAction(data, 'p4-buff-chat', () =>
@@ -5028,6 +5451,113 @@ Options.Triggers.push({
         myDmuRetryAction(data, 'p4-mark-timing', () =>
           myDmuProcessP4MarkTiming(data, 'buff-cache'), 12, 250);
       },
+    },
+    {
+      id: '绝妖星 P4 个人处理顺序',
+      type: 'GainsEffect',
+      netRegex: { effectId: [...myDmuP4PersonalActionBuffs, '808'], capture: true },
+      condition: myDmuP4CalloutEnabled,
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: 0.5,
+      durationSeconds: 60,
+      alarmText: myDmuP4PersonalOverview,
+      // A reference sequence stays silent even when short action callouts use TTS.
+      tts: null,
+      soundVolume: 0,
+    },
+    {
+      id: '绝妖星 P4 Buff 判定前文字',
+      type: 'GainsEffect',
+      netRegex: { effectId: myDmuP4PersonalActionBuffs, capture: true },
+      condition: (data, matches) => myDmuP4CalloutEnabled(data) &&
+        myDmuNumber(matches.duration) >= 8,
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: (_data, matches) => Math.max(0, myDmuNumber(matches.duration) - 8),
+      durationSeconds: 8,
+      countdownSeconds: 8,
+      alertText: myDmuP4PersonalReminder,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4BuffReminder'),
+    },
+    {
+      id: '绝妖星 P4 钢铁放下移动',
+      type: 'GainsEffect',
+      netRegex: { effectId: myDmuP4ChaosBuffs, capture: true },
+      condition: (data, matches) => myDmuP4CalloutEnabled(data) && matches.target === data.me &&
+        myDmuNumber(matches.duration) >= 0,
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: (_data, matches) => myDmuNumber(matches.duration),
+      durationSeconds: 3,
+      infoText: (data, matches) => myDmuP4ChaosInstantText(data, matches, 'out', '走！'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4ChaosInstant'),
+    },
+    {
+      id: '绝妖星 P4 月环等待',
+      type: 'GainsEffect',
+      netRegex: { effectId: myDmuP4ChaosBuffs, capture: true },
+      condition: (data, matches) => myDmuP4CalloutEnabled(data) && matches.target === data.me &&
+        myDmuNumber(matches.duration) >= 4,
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: (_data, matches) => myDmuNumber(matches.duration) - 4,
+      durationSeconds: 4,
+      countdownSeconds: 4,
+      infoText: (data, matches) => myDmuP4ChaosInstantText(data, matches, 'in', '等月环'),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4ChaosInstant'),
+    },
+    ...[
+      ['真假雷冰文字', 'BA94', 'both'],
+      ['暴雷文字', 'C5DE', 'thunder'],
+      ['冰封文字', 'BA95', 'ice'],
+    ].map(([name, id, kind]) => ({
+      id: `绝妖星 P4 ${name}`,
+      type: 'StartsUsing',
+      netRegex: { id, capture: true },
+      condition: myDmuP4CalloutEnabled,
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: 0.3,
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      alertText: (data, matches) => myDmuP4MagicCallout(data, matches, kind),
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4Magic'),
+    })),
+    {
+      id: '绝妖星 P4 魔法放出文字',
+      type: 'StartsUsing',
+      netRegex: { id: myDmuP4MagicReleaseId, capture: true },
+      condition: myDmuP4CalloutEnabled,
+      preRun: myDmuP4CaptureCallout,
+      delaySeconds: 3,
+      durationSeconds: 7,
+      suppressSeconds: 1,
+      alertText: (data, matches) => {
+        if (!myDmuP4CalloutCurrent(data, matches))
+          return undefined;
+        const action = myDmuP4MagicReleaseResult(data)?.action;
+        return myDmuCacheSpeech(data, 'p4Release', action === undefined ? undefined : `（稍后）${action}`);
+      },
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4Release'),
+    },
+    {
+      id: '绝妖星 P4 扑腾腾究极文字',
+      type: 'StartsUsing',
+      netRegex: { id: 'C24A', capture: true },
+      condition: myDmuP4CalloutEnabled,
+      preRun: myDmuP4CaptureCallout,
+      durationSeconds: 5,
+      infoText: (data, matches) => myDmuP4CalloutCurrent(data, matches)
+        ? myDmuCacheSpeech(data, 'p4Ultima', 'AOE') : undefined,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p4Ultima'),
     },
     {
       id: '绝妖星 P4 Buff 剩余5秒默语',
@@ -5064,6 +5594,18 @@ Options.Triggers.push({
       tts: null,
       soundVolume: 0,
       run: (data) => myDmuSpeakCached(data, 'p5ScholarShield'),
+    },
+    {
+      id: '绝妖星 P5 连续究极文字',
+      type: 'StartsUsing',
+      netRegex: { id: 'BB40', capture: false },
+      condition: (data) => myDmuP5CalloutEnabled(data),
+      durationSeconds: 5,
+      suppressSeconds: 1,
+      infoText: (data) => myDmuP5CalloutEnabled(data) ? myDmuCacheSpeech(data, 'p5Ultima', 'AOE ×4') : undefined,
+      tts: null,
+      soundVolume: 0,
+      run: (data) => myDmuSpeakCached(data, 'p5Ultima'),
     },
     {
       id: '绝妖星 P5 癫狂交响曲八方',
@@ -5207,7 +5749,8 @@ Options.Triggers.push({
     {
       id: '绝妖星 P5 魔击计数',
       type: 'Ability',
-      netRegex: { id: 'C652', capture: false },
+      // C652 is the windup. C654 targetIndex=0 is the actual impact (~0.8s later).
+      netRegex: { id: 'C654', targetIndex: '0', capture: false },
       condition: (data) => myDmuP5CalloutEnabled(data),
       durationSeconds: 3,
       suppressSeconds: 1,
@@ -5255,10 +5798,10 @@ Options.Triggers.push({
     {
       id: '绝妖星 P5 狂暴',
       type: 'StartsUsing',
-      netRegex: { id: 'BB3A', capture: false },
+      netRegex: { id: 'BB3A', capture: true },
       condition: (data) => myDmuP5CalloutEnabled(data),
-      countdownSeconds: 30,
-      durationSeconds: 5,
+      countdownSeconds: (_data, matches) => myDmuNumber(matches.castTime),
+      durationSeconds: (_data, matches) => myDmuNumber(matches.castTime) ?? 5,
       infoText: (data) => myDmuCacheSpeech(data, 'p5Enrage', '狂暴'),
       tts: null,
       soundVolume: 0,
